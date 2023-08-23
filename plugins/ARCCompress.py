@@ -79,6 +79,7 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("enabled", "enable this plugin", True),
         mobase.PluginSetting("ARCTool-path", self.__tr("Path to ARCTool.exe"), ""),
         mobase.PluginSetting("initialised", self.__tr("Settings have been initialised.  Set to False to reinitialise them."), False),
+        mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
 
     def displayName(self):
@@ -163,7 +164,7 @@ class ARCTool(mobase.IPluginTool):
                     savedPath = path
                     break
                 else:
-                    QMessageBox.information(self.__parentWidget, self.__tr("Not a compatible location..."), self.__tr("ARCTool only works when within the VFS, so must be installed to either the game's data directory or within a mod folder. Please select a different ARC installation."))
+                    QMessageBox.information(self.__parentWidget, self.__tr("Not a compatible location..."), self.__tr("ARCTool only works when within the VFS, so must be installed within a mod folder. Please select a different ARC installation"))
         # Check the mod is actually enabled
         if self.__withinDirectory(pathlibPath, modDirectory):
             ARCModName = None
@@ -214,7 +215,8 @@ class ARCTool(mobase.IPluginTool):
             Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
             shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + '/' + relative_path_parent))
             output = os.popen('"' + executable + '" ' + extract_args + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
-            print(output, file=open(str(tempDirARC) + '_ARCextract.log', 'a'))
+            if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                print(output, file=open(str(tempDirARC) + '_ARCextract.log', 'a'))
             os.remove(os.path.normpath(executablePath + '/' + relative_path + '.arc'))
             
         #create the output folder
@@ -233,19 +235,23 @@ class ARCTool(mobase.IPluginTool):
         for entry in reversed(modPriorityList):
             childModARCpath = pathlib.Path(str(modDirectory + '/' + entry) + "/" + relative_path)
             if pathlib.Path(childModARCpath).exists() and not entry == 'Merged ARC':
-                print("Merging " + entry, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+                if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                    print("Merging " + entry, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
                 shutil.copytree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path), dirs_exist_ok=True)
                 
         #compress
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + str(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
-        print(output, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+            print(output, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         
         #remove folders and txt
-        print("Cleaning up...", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+            print("Cleaning up...", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         shutil.rmtree(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path))
         os.remove(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path + '.arc.txt'))
         
-        print("ARC compress complete", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+            print("ARC compress complete", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         return True
 
     def __getModDirectory(self):
