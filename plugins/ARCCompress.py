@@ -196,30 +196,31 @@ class ARCTool(mobase.IPluginTool):
             QMessageBox.information(self.__parentWidget, self.__tr("Invalid folder..."), self.__tr("File " + relative_path + ".arc not located within the game folder"))
 
     def __compressARCFile(self, executable, path):
-        xargs = "-x -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
-        args = "-c -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
+        extract_args = "-x -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
+        compress_args = "-c -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
         
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
         relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
+        relative_path_parent = os.path.dirname(relative_path)
 
         # create temp and recreate folder structure in ARCTool folder
         executablePath, executableName = os.path.split(executable)
         Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
         tempDirARC = executablePath + '/' + relative_path
         
-        #copy vanilla .arc to temp, extract, then delete
+        #if files don't exist, copy vanilla .arc to temp, extract, then delete
         if not os.path.isdir(tempDirARC):
             Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
-            shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + "/rom/"))
-            output = os.popen('"' + executable + '" ' + xargs + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
-            print(output, file=open(str(tempDirARC) + '_ARCcompress.log', 'a'))
-            os.remove(os.path.normpath(executablePath + relative_path))
+            shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + '/' + relative_path_parent))
+            output = os.popen('"' + executable + '" ' + extract_args + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
+            print(output, file=open(str(tempDirARC) + '_ARCextract.log', 'a'))
+            os.remove(os.path.normpath(executablePath + '/' + relative_path + '.arc'))
             
         #create the output folder
-        Path(modDirectory + "/Merged ARC/rom/").mkdir(parents=True, exist_ok=True)
+        Path(modDirectory + "/Merged ARC/" + relative_path_parent).mkdir(parents=True, exist_ok=True)
         # copy .arc compression order txt
-        shutil.copy(os.path.normpath(executablePath + '/' + relative_path + ".arc.txt"), os.path.normpath(modDirectory + '/Merged ARC/rom/'))
+        shutil.copy(os.path.normpath(executablePath + '/' + relative_path + ".arc.txt"), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path_parent))
         
         #get mod priority list
         modPriorityList = []
@@ -231,10 +232,20 @@ class ARCTool(mobase.IPluginTool):
         #process mods in reverse since highest priority is at top of file
         for entry in reversed(modPriorityList):
             childModARCpath = pathlib.Path(str(modDirectory + '/' + entry) + "/" + relative_path)
-            if pathlib.Path(childModARCpath).exists():
-                print("Merging " + entry, file=open(str(tempDirARC) + '_ARCcompress.log', 'a'))
+            if pathlib.Path(childModARCpath).exists() and not entry == 'Merged ARC':
+                print("Merging " + entry, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
                 shutil.copytree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path), dirs_exist_ok=True)
+                
+        #compress
+        output = os.popen('"' + executable + '" ' + compress_args + ' "' + str(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
+        print(output, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         
+        #remove folders and txt
+        print("Cleaning up...", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+        shutil.rmtree(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path))
+        os.remove(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path + '.arc.txt'))
+        
+        print("ARC compress complete", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         return True
 
     def __getModDirectory(self):
