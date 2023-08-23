@@ -125,13 +125,13 @@ class ARCTool(mobase.IPluginTool):
         try:
             path = self.__getARCFilePath()
         except ARCFileMissingException:
-            QMessageBox.critical(self.__parentWidget, self.__tr("ARC file not specified"), self.__tr("A valid file was not specified. This tool will now exit."))
+            QMessageBox.critical(self.__parentWidget, self.__tr("ARC folder not specified"), self.__tr("A valid folder was not specified. This tool will now exit."))
             return
             
         compressResult = self.__compressARCFile(executable, path)
             
-        if extractResult:
-            QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC file extraction complete"))
+        if compressResult:
+            QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC folder compression complete"))
 
     def __tr(self, str):
         return QCoreApplication.translate("ARCTool", str)
@@ -182,19 +182,21 @@ class ARCTool(mobase.IPluginTool):
 
     def __getARCFilePath(self):
         modDirectory = self.__getModDirectory()
-        path = QFileDialog.getExistingDirectory(self.__parentWidget, self.__tr("Locate folder to compress"), str(modDirectory))[0]
+        gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
+        path = QFileDialog.getExistingDirectory(self.__parentWidget, self.__tr("Locate folder to compress"), str(modDirectory))
         if path == "":
         # Cancel was pressed
             raise ARCFileMissingException
-
-        pathlibPath = pathlib.Path(path)
-        inGoodLocation = self.__withinDirectory(pathlibPath, modDirectory)
-        if inGoodLocation:
+        relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
+        #check if *.arc exists in game folder
+        if pathlib.Path(gameDataDirectory + '/' + str(relative_path) + ".arc").exists():
+            pathlibPath = pathlib.Path(path)
             return path
         else:
-            QMessageBox.information(self.__parentWidget, self.__tr("Not a compatible location..."), self.__tr("ARC file must be located within the game or mod folder."))
+            QMessageBox.information(self.__parentWidget, self.__tr("Invalid folder..."), self.__tr("File " + relative_path + ".arc not located within the game folder"))
 
     def __compressARCFile(self, executable, path):
+        xargs = "-x -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
         args = "-c -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
         
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
@@ -203,23 +205,35 @@ class ARCTool(mobase.IPluginTool):
 
         # create temp and recreate folder structure in ARCTool folder
         executablePath, executableName = os.path.split(executable)
-        Path(executablePath + "/temp/rom/").mkdir(parents=True, exist_ok=True)
-        tempSubDir, arcFile = os.path.split(relative_path)
-        arcName = os.path.splitext(arcFile)[0]
-        tempDirARCPath = pathlib.Path(executablePath + "/temp/" + tempSubDir + "/" + os.path.splitext(arcName)[0])
+        Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
+        tempDirARC = executablePath + '/' + relative_path
         
         #copy vanilla .arc to temp, extract, then delete
-        extractedARCfolder = pathlib.Path(executablePath + "/temp/rom/" + os.path.splitext(arcName)[0])
-        if not (os.path.isdir(extractedARCfolder)):
-            Path(executablePath + "/temp/" + tempSubDir).mkdir(parents=True, exist_ok=True)
-            shutil.copy(os.path.join(gameDataDirectory, relative_path), executablePath + "/temp/" + tempSubDir)
-            os.system(executable + " " + args + " \"" + os.path.normpath(executablePath + "/temp/" + relative_path + "\""))
-            os.remove(os.path.normpath(executablePath + "/temp/" + relative_path))
+        if not os.path.isdir(tempDirARC):
+            Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
+            shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + "/rom/"))
+            output = os.popen('"' + executable + '" ' + xargs + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
+            print(output, file=open(str(tempDirARC) + '_ARCcompress.log', 'a'))
+            os.remove(os.path.normpath(executablePath + relative_path))
+            
+        #create the output folder
+        Path(modDirectory + "/Merged ARC/rom/").mkdir(parents=True, exist_ok=True)
+        # copy .arc compression order txt
+        shutil.copy(os.path.normpath(executablePath + '/' + relative_path + ".arc.txt"), os.path.normpath(modDirectory + '/Merged ARC/rom/'))
         
-        #find all matching arc folders and copy to merge mod
-        modDirPath = pathlib.Path(modDirectory)
-        for child in mobase.allModsByProfilePriority(profile=None):
-            QMessageBox.information(self.__parentWidget, self.__tr("DEBUG"), self.__tr("mod: " + child))
+        #get mod priority list
+        modPriorityList = []
+        with open("C:\MO2 Games\DDDA\profiles\Default\modlist.txt") as file:
+            for line in file: 
+                line = line.strip()
+                if (line.startswith('+')):
+                    modPriorityList.append(line.strip('+'))
+        #process mods in reverse since highest priority is at top of file
+        for entry in reversed(modPriorityList):
+            childModARCpath = pathlib.Path(str(modDirectory + '/' + entry) + "/" + relative_path)
+            if pathlib.Path(childModARCpath).exists():
+                print("Merging " + entry, file=open(str(tempDirARC) + '_ARCcompress.log', 'a'))
+                shutil.copytree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path), dirs_exist_ok=True)
         
         return True
 

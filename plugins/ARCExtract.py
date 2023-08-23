@@ -205,18 +205,19 @@ class ARCTool(mobase.IPluginTool):
 
         # create temp and recreate folder structure in ARCTool folder
         executablePath, executableName = os.path.split(executable)
-        Path(executablePath + "/temp/rom/").mkdir(parents=True, exist_ok=True)
+        Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
         tempSubDir, arcFile = os.path.split(relative_path)
         arcName = os.path.splitext(arcFile)[0]
-        tempDirARCPath = pathlib.Path(executablePath + "/temp/" + tempSubDir + "/" + os.path.splitext(arcName)[0])
+        tempDirARCPath = pathlib.Path(executablePath +  tempSubDir + "/" + os.path.splitext(arcName)[0])
         
         #copy vanilla arc to temp, extract, then delete
-        extractedARCfolder = pathlib.Path(executablePath + "/temp/rom/" + os.path.splitext(arcName)[0])
+        extractedARCfolder = pathlib.Path(executablePath + "/rom/" + os.path.splitext(arcName)[0])
         if not (os.path.isdir(extractedARCfolder)):
-            Path(executablePath + "/temp/" + tempSubDir).mkdir(parents=True, exist_ok=True)
-            shutil.copy(os.path.join(gameDataDirectory, relative_path), executablePath + "/temp/" + tempSubDir)
-            os.system(executable + " " + args + " \"" + os.path.normpath(executablePath + "/temp/" + relative_path + "\""))
-            os.remove(os.path.normpath(executablePath + "/temp/" + relative_path))
+            Path(executablePath +  tempSubDir).mkdir(parents=True, exist_ok=True)
+            shutil.copy(os.path.normpath(os.path.join(gameDataDirectory, relative_path)), os.path.normpath(executablePath +  tempSubDir))
+            output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(executablePath +  relative_path + '"')).read()
+            print(output, file=open(str(tempDirARCPath) + '_ARCtool.log', 'a'))
+            os.remove(os.path.normpath(executablePath +  relative_path))
         
         #extract all matching arc and remove
         modDirPath = pathlib.Path(modDirectory)
@@ -225,12 +226,15 @@ class ARCTool(mobase.IPluginTool):
                 childModARC = pathlib.Path(str(child) + "/" + relative_path)
                 childModARCPath = os.path.splitext(childModARC)[0]
                 if pathlib.Path(childModARC).exists():
-                    os.system(executable + " " + args + " \"" + str(childModARC) + "\"")
+                    #QMessageBox.information(self.__parentWidget, self.__tr("DEBUG"), self.__tr("relative_path: " + str(relative_path)))
+                    #QMessageBox.information(self.__parentWidget, self.__tr("DEBUG"), self.__tr("childModARC: " + str(childModARC)))
+                    output = os.popen('"' + executable + '" ' + args + ' "' + str(childModARC) + '"').read()
+                    print(output, file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
                     # remove ITM
                     if bool(self.__organizer.pluginSetting(self.name(), "remove-ITM")):
                         def delete_same_files(dcmp):
                             for name in dcmp.same_files:
-                                print("Deleting duplicate file %s" % (os.path.join(dcmp.right, name)), file=open(str(tempDirARCPath) + '_ARCtool.log', 'a'))
+                                print("Deleting duplicate file %s" % (os.path.join(dcmp.right, name)), file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
                                 os.remove(os.path.join(dcmp.right, name))
                             for sub_dcmp in dcmp.subdirs.values():
                                 delete_same_files(sub_dcmp)
@@ -241,11 +245,11 @@ class ARCTool(mobase.IPluginTool):
                             for dirname in dirnames:
                                 full_path = os.path.join(dirpath, dirname)
                                 if not os.listdir(full_path):
-                                    print("Deleting empty folder %s" % (full_path), file=open(str(tempDirARCPath) + '_ARCtool.log', 'a'))
+                                    print("Deleting empty folder %s" % (full_path), file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
                                     os.rmdir(full_path)
                     # delete arc
                     os.remove(childModARC)
-        
+
         return True
 
     def __getModDirectory(self):
