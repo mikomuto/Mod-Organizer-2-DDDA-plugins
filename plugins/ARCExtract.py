@@ -80,6 +80,8 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("ARCTool-path", self.__tr("Path to ARCTool.exe"), ""),
         mobase.PluginSetting("initialised", self.__tr("Settings have been initialised.  Set to False to reinitialise them."), False),
         mobase.PluginSetting("remove-ITM", self.__tr("Remove identical to master files when extracting ARC files"), True),
+        mobase.PluginSetting("delete-ARC", self.__tr("Delete .arc file after extracting"), True),
+        mobase.PluginSetting("hide-ARC", self.__tr("Hide .arc file after extracting"), False),
         mobase.PluginSetting("repair-TEX", self.__tr("Fix file extensions and extract TEX files"), True),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
@@ -254,7 +256,10 @@ class ARCTool(mobase.IPluginTool):
                                         print("Deleting empty folder %s" % (full_path), file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
                                     os.rmdir(full_path)
                     # delete arc
-                    os.remove(childModARC)
+                    if bool(self.__organizer.pluginSetting(self.name(), "delete-ARC")):
+                        os.remove(childModARC)
+                    if bool(self.__organizer.pluginSetting(self.name(), "hide-ARC")):
+                        os.rename(childModARC, str(childModARC) + ".mohidden")
 
         return True
         
@@ -264,7 +269,7 @@ class ARCTool(mobase.IPluginTool):
             for file in filenames:
                 thisfilename = os.path.splitext(file)[0]
                 extension = os.path.splitext(file)[1]
-                if len(extension) == 9:
+                if len(extension) == 9 and self.__is_hex(extension):
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
                         print("Invalid TEX file found: %s" % (dirpath + '/' + file), file=open(str(path) + '/ARCtool_tex.log', 'a'))
                     os.rename(dirpath + '/' + file, dirpath + '/' + thisfilename + ".tex")
@@ -277,6 +282,10 @@ class ARCTool(mobase.IPluginTool):
 
     def __getModDirectory(self):
         return self.__organizer.modsPath()
+
+    @staticmethod
+    def __is_hex(string):
+        return re.fullmatch(r"^[0-9a-fA-F]$", string or "") is not None
 
     @staticmethod
     def __withinDirectory(innerPath, outerDir):

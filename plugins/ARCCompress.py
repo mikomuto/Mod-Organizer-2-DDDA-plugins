@@ -79,6 +79,8 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("enabled", "enable this plugin", True),
         mobase.PluginSetting("ARCTool-path", self.__tr("Path to ARCTool.exe"), ""),
         mobase.PluginSetting("initialised", self.__tr("Settings have been initialised.  Set to False to reinitialise them."), False),
+        mobase.PluginSetting("delete-ARC", self.__tr("Delete folder after compressing"), False),
+        mobase.PluginSetting("hide-ARC", self.__tr("Hide folder after compressing"), False),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
 
@@ -202,6 +204,7 @@ class ARCTool(mobase.IPluginTool):
         
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
+        modDirectoryPath = pathlib.Path(modDirectory)
         relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
         relative_path_parent = os.path.dirname(relative_path)
 
@@ -226,7 +229,9 @@ class ARCTool(mobase.IPluginTool):
         
         #get mod priority list
         modPriorityList = []
-        with open("C:\MO2 Games\DDDA\profiles\Default\modlist.txt") as file:
+        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+            print("Loading profile from: " + str(modDirectoryPath.parent) + "\profiles\Default\modlist.txt", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
+        with open(str(modDirectoryPath.parent) + "\profiles\Default\modlist.txt") as file:
             for line in file: 
                 line = line.strip()
                 if (line.startswith('+')):
@@ -238,7 +243,11 @@ class ARCTool(mobase.IPluginTool):
                 if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
                     print("Merging " + entry, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
                 shutil.copytree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path), dirs_exist_ok=True)
-                
+                if bool(self.__organizer.pluginSetting(self.name(), "delete-ARC")):
+                    shutil.rmtree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path))
+                if bool(self.__organizer.pluginSetting(self.name(), "hide-ARC")):
+                    os.rename(modDirectory + '/' + entry + '/' + relative_path, str(modDirectory + '/' + entry + '/' + relative_path) + ".mohidden")
+
         #compress
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + str(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
         if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
