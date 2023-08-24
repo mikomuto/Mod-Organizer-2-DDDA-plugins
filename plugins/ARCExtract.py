@@ -82,6 +82,7 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("remove-ITM", self.__tr("Remove identical to master files when extracting ARC files"), True),
         mobase.PluginSetting("delete-ARC", self.__tr("Delete .arc file after extracting"), True),
         mobase.PluginSetting("hide-ARC", self.__tr("Hide .arc file after extracting"), False),
+        mobase.PluginSetting("remove-temp", self.__tr("Delete temporary files and folders"), True),
         mobase.PluginSetting("repair-TEX", self.__tr("Fix file extensions and extract TEX files"), True),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
