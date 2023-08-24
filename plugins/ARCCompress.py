@@ -192,9 +192,21 @@ class ARCTool(mobase.IPluginTool):
             QMessageBox.information(self.__parentWidget, self.__tr("Invalid folder..."), self.__tr("File " + relative_path + ".arc not located within the game folder"))
 
     def __compressARCFile(self, executable, path):
-        extract_args = "-x -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
-        compress_args = "-c -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
-        
+        extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-gmd")):
+            extract_args += " -gmd"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-tex")):
+            extract_args += " -tex"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-xfs")):
+            extract_args += " -xfs"
+        compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-gmd")):
+            compress_args += " -gmd"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-tex")):
+            compress_args += " -tex"
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "convert-xfs")):
+            compress_args += " -xfs"
+
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
         modDirectoryPath = pathlib.Path(modDirectory)
@@ -205,7 +217,7 @@ class ARCTool(mobase.IPluginTool):
         executablePath, executableName = os.path.split(executable)
         Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
         tempDirARC = executablePath + '/' + relative_path
-        
+
         #if files don't exist, copy vanilla .arc to temp, extract, then delete
         if not os.path.isdir(tempDirARC):
             Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
@@ -214,12 +226,12 @@ class ARCTool(mobase.IPluginTool):
             if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                 print(output, file=open(str(tempDirARC) + '_ARCextract.log', 'a'))
             os.remove(os.path.normpath(executablePath + '/' + relative_path + '.arc'))
-            
+
         #create the output folder
         Path(modDirectory + "/Merged ARC/" + relative_path_parent).mkdir(parents=True, exist_ok=True)
         # copy .arc compression order txt
         shutil.copy(os.path.normpath(executablePath + '/' + relative_path + ".arc.txt"), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path_parent))
-        
+
         #get mod priority list
         modPriorityList = []
         if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
@@ -241,14 +253,14 @@ class ARCTool(mobase.IPluginTool):
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + str(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
         if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
             print(output, file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
-        
+
         #remove folders and txt
         if bool(self.__organizer.pluginSetting(self.__mainToolName(), "remove-temp")):
             if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                 print("Cleaning up...", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
             shutil.rmtree(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path))
             os.remove(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path + '.arc.txt'))
-        
+
         if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
             print("ARC compress complete", file=open(str(modDirectory) + '/Merged ARC/' + str(relative_path) + '_ARCcompress.log', 'a'))
         return True
@@ -262,7 +274,7 @@ class ARCTool(mobase.IPluginTool):
             if path.samefile(outerDir):
                 return True
         return False
-        
+
     @staticmethod
     def __mainToolName():
         return ARCTool().name()

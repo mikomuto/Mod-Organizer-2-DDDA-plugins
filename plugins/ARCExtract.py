@@ -23,7 +23,7 @@ if "mobase" not in sys.modules:
 class ARCToolInvalidPathException(Exception):
     """Thrown if ARCTool.exe path can't be found"""
     pass
-    
+
 class ARCToolMissingException(Exception):
     """Thrown if selected ARC file can't be found"""
     pass
@@ -31,7 +31,7 @@ class ARCToolMissingException(Exception):
 class ARCToolInactiveException(Exception):
     """Thrown if ARCTool.exe is installed to an inactive mod"""
     pass
-    
+
 class ARCFileMissingException(Exception):
     """Thrown if selected ARC file can't be found"""
     pass
@@ -65,12 +65,12 @@ class ARCTool(mobase.IPluginTool):
 
     def version(self):
         return mobase.VersionInfo(1, 0, 0, 0)
-        
+
     def requirements(self):
         return [
             mobase.PluginRequirementFactory.gameDependency("Dragon's Dogma: Dark Arisen")
         ]
-        
+
     def isActive(self) -> bool:
         return self._organizer.pluginSetting(self.name(), "enabled")
 
@@ -84,6 +84,9 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("hide-ARC", self.__tr("Hide .arc file after extracting"), False),
         mobase.PluginSetting("remove-temp", self.__tr("Delete temporary files and folders"), True),
         mobase.PluginSetting("repair-TEX", self.__tr("Fix file extensions and extract TEX files"), True),
+        mobase.PluginSetting("convert-gmd", self.__tr("Enable GMD <-> TXT"), False),
+        mobase.PluginSetting("convert-tex", self.__tr("Enable TEX <-> DDS/TGA"), False),
+        mobase.PluginSetting("convert-xfs", self.__tr("Enable XFS <-> ???"), False),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
 
@@ -110,7 +113,7 @@ class ARCTool(mobase.IPluginTool):
 
     def display(self):
         args = []
-        
+
         if not bool(self.__organizer.pluginSetting(self.name(), "initialised")):
             self.__organizer.setPluginSetting(self.name(), "ARCTool-path", "")
 
@@ -133,7 +136,7 @@ class ARCTool(mobase.IPluginTool):
         except ARCFileMissingException:
             QMessageBox.critical(self.__parentWidget, self.__tr("ARC file not specified"), self.__tr("A valid file was not specified. This tool will now exit."))
             return
-            
+
         extractResult = self.__extractARCFile(executable, path)
             
         if extractResult:
@@ -202,8 +205,14 @@ class ARCTool(mobase.IPluginTool):
             QMessageBox.information(self.__parentWidget, self.__tr("Not a compatible location..."), self.__tr("ARC file must be located within a mod folder"))
 
     def __extractARCFile(self, executable, path):
-        args = "-x -dd -tex -xfs -gmd -txt -alwayscomp -pc -txt -v 7"
-        
+        args = "-x -pc -dd -alwayscomp -txt -v 7"
+        if bool(self.__organizer.pluginSetting(self.name(), "convert-gmd")):
+            args += " -gmd"
+        if bool(self.__organizer.pluginSetting(self.name(), "convert-tex")):
+            args += " -tex"
+        if bool(self.__organizer.pluginSetting(self.name(), "convert-xfs")):
+            args += " -xfs"
+
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
         relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
@@ -214,7 +223,7 @@ class ARCTool(mobase.IPluginTool):
         tempSubDir, arcFile = os.path.split(relative_path)
         arcName = os.path.splitext(arcFile)[0]
         tempDirARCPath = pathlib.Path(executablePath + '/' +  tempSubDir + '/' + os.path.splitext(arcName)[0])
-        
+
         #copy vanilla arc to temp, extract, then delete
         extractedARCfolder = pathlib.Path(executablePath + "/rom/" + os.path.splitext(arcName)[0])
         if not (os.path.isdir(extractedARCfolder)):
@@ -224,7 +233,7 @@ class ARCTool(mobase.IPluginTool):
             if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
                 print(output, file=open(str(tempDirARCPath) + '_ARCtool.log', 'a'))
             os.remove(os.path.normpath(executablePath + '/' + relative_path))
-        
+
         #extract all matching arc and remove
         modDirPath = pathlib.Path(modDirectory)
         for child in modDirPath.iterdir():
@@ -263,7 +272,7 @@ class ARCTool(mobase.IPluginTool):
                         os.rename(childModARC, str(childModARC) + ".mohidden")
 
         return True
-        
+
     def __fixTEXfiles(self, path):
         executable = self.__organizer.pluginSetting(self.name(), "ARCTool-path")
         for dirpath, dirnames, filenames in os.walk(path):
