@@ -189,7 +189,7 @@ class ARCToolCompress(mobase.IPluginTool):
             Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
             shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + '/' + relative_path_parent))
             output = os.popen('"' + executable + '" ' + extract_args + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
-            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
                 qInfo(output)
             os.remove(os.path.normpath(executablePath + '/' + relative_path + '.arc'))
         else:
@@ -223,7 +223,7 @@ class ARCToolCompress(mobase.IPluginTool):
 
         #compress
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + os.path.normpath(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
             qInfo(output)
 
         #remove folders and txt
@@ -246,7 +246,7 @@ class ARCToolCompress(mobase.IPluginTool):
                 if extension == "arc.txt":
                     arcFile = dirpath + "\\" + arcfolder
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                        qInfo("merging arc: " + arcFile)
+                        qInfo("Starting merge for arc: " + arcFile)
                     self.__compressARCFile(executable, arcFile)
                     
     def __getModDirectory(self):
