@@ -7,15 +7,15 @@
 # * If ARCTool' location isn't known (or isn't valid, e.g. ARCTool isn't actually there) when the button is pressed, a file chooser is displayed to find ARCTool.
 # asks user for arc file to extract, copies vanilla arc from game folder to a temp folder, extracts this arc in all mods installed, deletes identical to master files, then exits
 
-import os
+import os, re
 import shutil
 import pathlib
 import sys
 import filecmp
 
-from PyQt5.QtCore import QCoreApplication, qCritical, QFileInfo
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QFileDialog, QFileSystemModel, QMessageBox
+from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo
+from PyQt6.QtGui import QIcon, QFileSystemModel
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 if "mobase" not in sys.modules:
     import mock_mobase as mobase
@@ -36,10 +36,10 @@ class ARCFileMissingException(Exception):
     """Thrown if selected ARC file can't be found"""
     pass
 
-class ARCTool(mobase.IPluginTool):
+class ARCExtract(mobase.IPluginTool):
 
     def __init__(self):
-        super(ARCTool, self).__init__()
+        super(ARCExtract, self).__init__()
         self.__organizer = None
         self.__parentWidget = None
 
@@ -50,6 +50,10 @@ class ARCTool(mobase.IPluginTool):
             QMessageBox.critical(self.__parentWidget, self.__tr("Incompatible Python version."), self.__tr("This version of the ARC extractor plugin requires a Python 3 interpreter, but Mod Organizer has provided a Python 2 interpreter. You should check for an updated version, including in the Mod Organizer 2 Development Discord Server."))
             return False
         return True
+        
+    RE_TEXHEX = re.compile('\.[0-9a-fA-F]{8}')
+    RE_BACKUP = re.compile('.*BACK *UP.*', re.IGNORECASE)
+    RE_EXTRACTED_ARC = re.compile('.*.arc.txt')
 
     def name(self):
         return "ARC Extractor"
@@ -83,10 +87,6 @@ class ARCTool(mobase.IPluginTool):
         mobase.PluginSetting("delete-ARC", self.__tr("Delete .arc file after extracting"), True),
         mobase.PluginSetting("hide-ARC", self.__tr("Hide .arc file after extracting"), False),
         mobase.PluginSetting("remove-temp", self.__tr("Delete temporary files and folders"), True),
-        mobase.PluginSetting("repair-TEX", self.__tr("Fix file extensions and extract TEX files"), True),
-        mobase.PluginSetting("convert-gmd", self.__tr("Enable GMD <-> TXT"), False),
-        mobase.PluginSetting("convert-tex", self.__tr("Enable TEX <-> DDS/TGA"), False),
-        mobase.PluginSetting("convert-xfs", self.__tr("Enable XFS <-> ???"), False),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
             ]
 
@@ -94,7 +94,7 @@ class ARCTool(mobase.IPluginTool):
         return self.__tr("ARC Extract")
 
     def tooltip(self):
-        return self.__tr("Unpacks ARC File")
+        return self.__tr("Unpacks all ARC files")
 
     def icon(self):
         ARCToolPath = self.__organizer.pluginSetting(self.name(), "ARCTool-path")
@@ -130,17 +130,10 @@ class ARCTool(mobase.IPluginTool):
             return
 
         self.__organizer.setPluginSetting(self.name(), "initialised", True)
-
-        try:
-            path = self.__getARCFilePath()
-        except ARCFileMissingException:
-            QMessageBox.critical(self.__parentWidget, self.__tr("ARC file not specified"), self.__tr("A valid file was not specified. This tool will now exit."))
-            return
-
-        extractResult = self.__extractARCFile(executable, path)
-            
-        if extractResult:
-            QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC file extraction complete"))
+        
+        self.__processMods(executable)
+        
+        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC file extraction complete"))
 
     def __tr(self, str):
         return QCoreApplication.translate("ARCTool", str)
@@ -182,44 +175,24 @@ class ARCTool(mobase.IPluginTool):
                     break
             if (self.__organizer.modList().state(ARCModName) & mobase.ModState.active) == 0:
                 # ARC is installed to an inactive mod
-                result = QMessageBox.question(self.__parentWidget, self.__tr("ARCTool mod deactivated"), self.__tr("ARCTool is installed to an inactive mod. /n/nPress OK to activate it or Cancel to quit the tool"), QMessageBox.StandardButtons(QMessageBox.Ok | QMessageBox.Cancel))
-                if result == QMessageBox.Ok:
+                result = QMessageBox.question(self.__parentWidget, self.__tr("ARCTool mod deactivated"), self.__tr("ARCTool is installed to an inactive mod. /n/nPress Yes to activate it or Cancel to quit the tool"), QMessageBox.StandardButton(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel))
+                if result == QMessageBox.StandardButton.Yes:
                     self.__organizer.modList().setActive(ARCModName, True)
                 else:
                     raise ARCToolInactiveException
         return savedPath
 
-    def __getARCFilePath(self):
-        modDirectory = self.__getModDirectory()
-        executable = self.__organizer.pluginSetting(self.name(), "ARCTool-path")
-        path = QFileDialog.getOpenFileName(self.__parentWidget, self.__tr("Locate ARC file"), str(modDirectory), "*.arc")[0]
-        if path == "":
-        # Cancel was pressed
-            raise ARCFileMissingException
-
-        pathlibPath = pathlib.Path(path)
-        inGoodLocation = self.__withinDirectory(pathlibPath, modDirectory)
-        if pathlibPath.is_file() and inGoodLocation:
-            return path
-        else:
-            QMessageBox.information(self.__parentWidget, self.__tr("Not a compatible location..."), self.__tr("ARC file must be located within a mod folder"))
-
     def __extractARCFile(self, executable, path):
         args = "-x -pc -dd -alwayscomp -txt -v 7"
-        if bool(self.__organizer.pluginSetting(self.name(), "convert-gmd")):
-            args += " -gmd"
-        if bool(self.__organizer.pluginSetting(self.name(), "convert-tex")):
-            args += " -tex"
-        if bool(self.__organizer.pluginSetting(self.name(), "convert-xfs")):
-            args += " -xfs"
-
+        
         gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
+        modDirPath = pathlib.Path(modDirectory)
         relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
 
         # create temp and recreate folder structure in ARCTool folder
         executablePath, executableName = os.path.split(executable)
-        Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
+        pathlib.Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
         tempSubDir, arcFile = os.path.split(relative_path)
         arcName = os.path.splitext(arcFile)[0]
         tempDirARCPath = pathlib.Path(executablePath + '/' +  tempSubDir + '/' + os.path.splitext(arcName)[0])
@@ -227,75 +200,97 @@ class ARCTool(mobase.IPluginTool):
         #copy vanilla arc to temp, extract, then delete
         extractedARCfolder = pathlib.Path(executablePath + "/rom/" + os.path.splitext(arcName)[0])
         if not (os.path.isdir(extractedARCfolder)):
-            Path(executablePath + '/' +  tempSubDir).mkdir(parents=True, exist_ok=True)
+            pathlib.Path(executablePath + '/' +  tempSubDir).mkdir(parents=True, exist_ok=True)
             shutil.copy(os.path.normpath(os.path.join(gameDataDirectory, relative_path)), os.path.normpath(executablePath + '/' + tempSubDir))
             output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(executablePath + '/' + relative_path + '"')).read()
             if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                print(output, file=open(str(tempDirARCPath) + '_ARCtool.log', 'a'))
+                qInfo(output)
             os.remove(os.path.normpath(executablePath + '/' + relative_path))
 
-        #extract all matching arc and remove
-        modDirPath = pathlib.Path(modDirectory)
-        for child in modDirPath.iterdir():
-            if bool(self.__organizer.pluginSetting(self.name(), "repair-TEX")):
-                self.__fixTEXfiles(child)
-            if not pathlib.PurePath(child).match('Merged ARC'):
-                childModARC = pathlib.Path(str(child) + '/' + relative_path)
-                childModARCPath = os.path.splitext(childModARC)[0]
-                if pathlib.Path(childModARC).exists():
-                    output = os.popen('"' + executable + '" ' + args + ' "' + str(childModARC) + '"').read()
-                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                        print(output, file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
-                    # remove ITM
-                    if bool(self.__organizer.pluginSetting(self.name(), "remove-ITM")):
-                        def delete_same_files(dcmp):
-                            for name in dcmp.same_files:
-                                if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                                    print("Deleting duplicate file %s" % (os.path.join(dcmp.right, name)), file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
-                                os.remove(os.path.join(dcmp.right, name))
-                            for sub_dcmp in dcmp.subdirs.values():
-                                delete_same_files(sub_dcmp)
-                        dcmp = filecmp.dircmp(tempDirARCPath, childModARCPath) 
-                        delete_same_files(dcmp)
-                        # delete empty folders
-                        for dirpath, dirnames, filenames in os.walk(childModARCPath, topdown=False):
-                            for dirname in dirnames:
-                                full_path = os.path.join(dirpath, dirname)
-                                if not os.listdir(full_path):
-                                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                                        print("Deleting empty folder %s" % (full_path), file=open(str(childModARCPath) + '_ARCtool.log', 'a'))
-                                    os.rmdir(full_path)
-                    # delete arc
-                    if bool(self.__organizer.pluginSetting(self.name(), "delete-ARC")):
-                        os.remove(childModARC)
-                    if bool(self.__organizer.pluginSetting(self.name(), "hide-ARC")):
-                        os.rename(childModARC, str(childModARC) + ".mohidden")
+        #extract arc and remove
+        ARCFilePath = os.path.splitext(path)[0]
+        if pathlib.Path(path).exists():
+            output = os.popen('"' + executable + '" ' + args + ' "' + str(path) + '"').read()
+            if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                qInfo(output)
+            # remove ITM
+            if bool(self.__organizer.pluginSetting(self.name(), "remove-ITM")):
+                def delete_same_files(dcmp):
+                    for name in dcmp.same_files:
+                        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                            qInfo("Deleting duplicate file %s" % (os.path.join(dcmp.right, name)))
+                        os.remove(os.path.join(dcmp.right, name))
+                    for sub_dcmp in dcmp.subdirs.values():
+                        delete_same_files(sub_dcmp)
+                dcmp = filecmp.dircmp(tempDirARCPath, ARCFilePath) 
+                delete_same_files(dcmp)
+                # delete empty folders
+                for dirpath, dirnames, filenames in os.walk(ARCFilePath, topdown=False):
+                    for dirname in dirnames:
+                        full_path = os.path.join(dirpath, dirname)
+                        if not os.listdir(full_path):
+                            if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                                qInfo("Deleting empty folder %s" % (full_path))
+                            os.rmdir(full_path)
+            # delete arc
+            if bool(self.__organizer.pluginSetting(self.name(), "delete-ARC")):
+                os.remove(path)
+            if bool(self.__organizer.pluginSetting(self.name(), "hide-ARC")):
+                os.rename(path, str(path) + ".mohidden")
 
         return True
-
-    def __fixTEXfiles(self, path):
-        executable = self.__organizer.pluginSetting(self.name(), "ARCTool-path")
-        for dirpath, dirnames, filenames in os.walk(path):
+        
+    def __processMods(self, executable):
+        arcFilesSeen = []
+        duplicateARCFiles = []
+        modDirectory = self.__getModDirectory()
+        QMessageBox.information(self.__parentWidget, self.__tr("Note:"), self.__tr("Starting ARC file extraction. Process will run in the background and may take a long time. Mod manager will appear inactive."))
+        for dirpath, dirnames, filenames in os.walk(modDirectory):
+            for folder in dirnames:
+                isBackupFolder = self.RE_BACKUP.match(folder)
+                if isBackupFolder:
+                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                        qInfo("Backup folder deleted: " + dirpath + "\\" + folder)
+                    shutil.rmtree(dirpath + "\\" + folder, ignore_errors=False, onerror=None)
+            #start by making list of duplicate arc files
             for file in filenames:
                 thisfilename = os.path.splitext(file)[0]
                 extension = os.path.splitext(file)[1]
-                if len(extension) == 9 and self.__is_hex(extension):
+                if extension == ".txt":
+                    isExtractedARC = self.RE_EXTRACTED_ARC.match(file)
+                    if isExtractedARC:
+                        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                            qInfo("extracted arc: " + thisfilename)
+                        duplicateARCFiles.append(thisfilename)
+                if extension == ".arc":                    
+                    if file in arcFilesSeen:
+                        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                            qInfo("duplicate arc: " + file)
+                        duplicateARCFiles.append(file)
+                    else:
+                        arcFilesSeen.append(file)
+            #process duplicate arc files
+            for file in filenames:
+                thisfilename = os.path.splitext(file)[0]
+                extension = os.path.splitext(file)[1]
+                if extension == ".arc" and file in duplicateARCFiles:
+                    arcFile = dirpath + "\\" + file
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                        print("Invalid TEX file found: %s" % (dirpath + '/' + file), file=open(str(path) + '/ARCtool_tex.log', 'a'))
+                        qInfo("extracting arc: " + arcFile)
+                    self.__extractARCFile(executable, arcFile)
+                isFixableTexFile = self.RE_TEXHEX.match(extension)
+                if isFixableTexFile:
+                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                        qInfo("Invalid TEX file found: %s" % (dirpath + '/' + file))
                     os.rename(dirpath + '/' + file, dirpath + '/' + thisfilename + ".tex")
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                        print("File renamed", file=open(str(path) + '/ARCtool_tex.log', 'a'))
-                    output = os.popen('"' + executable + '" ' + ' "' + str(dirpath + '/' + thisfilename + ".tex") + '"').read()
+                        qInfo("File renamed")
+                    output = os.popen('"' + executable + '" ' + ' "' + str(dirpath + '\\' + thisfilename + ".tex") + '"').read()
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                        print(output, file=open(str(path) + '/ARCtool_tex.log', 'a'))
-        return True
+                        qInfo(output)
 
     def __getModDirectory(self):
         return self.__organizer.modsPath()
-
-    @staticmethod
-    def __is_hex(string):
-        return re.fullmatch(r"^[0-9a-fA-F]$", string or "") is not None
 
     @staticmethod
     def __withinDirectory(innerPath, outerDir):
@@ -305,4 +300,4 @@ class ARCTool(mobase.IPluginTool):
         return False
 
 def createPlugin():
-    return ARCTool()
+    return ARCExtract()
