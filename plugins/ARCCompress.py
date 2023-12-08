@@ -40,11 +40,11 @@ class ARCToolCompress(mobase.IPluginTool):
 
     def __init__(self):
         super(ARCToolCompress, self).__init__()
-        self.__organizer = None
+        self._organizer = None
         self.__parentWidget = None
 
     def init(self, organizer):
-        self.__organizer = organizer
+        self._organizer = organizer
         return True
 
     def name(self):
@@ -80,7 +80,7 @@ class ARCToolCompress(mobase.IPluginTool):
         return self.__tr("Merge extracted .arc files")
 
     def icon(self):
-        ARCToolPath = self.__organizer.pluginSetting(self.__mainToolName(), "ARCTool-path")    
+        ARCToolPath = self._organizer.pluginSetting(self.__mainToolName(), "ARCTool-path")    
         if os.path.exists(ARCToolPath):
             # We can't directly grab the icon from an executable, but this seems like the simplest alternative.
             fin = QFileInfo(ARCToolPath)
@@ -97,8 +97,8 @@ class ARCToolCompress(mobase.IPluginTool):
     def display(self):
         args = []
         
-        if not bool(self.__organizer.pluginSetting(self.__mainToolName(), "initialised")):
-            self.__organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", "")
+        if not bool(self._organizer.pluginSetting(self.__mainToolName(), "initialised")):
+            self._organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", "")
 
         try:
             executable = self.__getARCToolPath()
@@ -112,7 +112,7 @@ class ARCToolCompress(mobase.IPluginTool):
             # Error has already been displayed, just quit
             return
 
-        self.__organizer.setPluginSetting(self.__mainToolName(), "initialised", True)
+        self._organizer.setPluginSetting(self.__mainToolName(), "initialised", True)
 
         self.__processMods(executable)
 
@@ -122,14 +122,14 @@ class ARCToolCompress(mobase.IPluginTool):
         return QCoreApplication.translate("ARCTool", str)
 
     def __getARCToolPath(self):
-        savedPath = self.__organizer.pluginSetting(self.__mainToolName(), "ARCTool-path")
+        savedPath = self._organizer.pluginSetting(self.__mainToolName(), "ARCTool-path")
         # ARCTool must be installed within the game's data directory or a mod folder
         modDirectory = self.__getModDirectory()
-        gameDataDirectory = pathlib.Path(self.__organizer.managedGame().dataDirectory().absolutePath())
+        gameDataDirectory = pathlib.Path(self._organizer.managedGame().dataDirectory().absolutePath())
         pathlibPath = pathlib.Path(savedPath)
         if not os.path.exists(pathlibPath):
-            self.__organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", "")
-            self.__organizer.setPluginSetting(self.__mainToolName(), "initialised", False)
+            self._organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", "")
+            self._organizer.setPluginSetting(self.__mainToolName(), "initialised", False)
             raise ARCToolMissingException
         inGoodLocation = self.__withinDirectory(pathlibPath, modDirectory)
         inGoodLocation |= self.__withinDirectory(pathlibPath, gameDataDirectory)
@@ -144,7 +144,7 @@ class ARCToolCompress(mobase.IPluginTool):
                 inGoodLocation = self.__withinDirectory(pathlibPath, modDirectory)
                 inGoodLocation |= self.__withinDirectory(pathlibPath, gameDataDirectory)
                 if pathlibPath.is_file() and inGoodLocation:
-                    self.__organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", path)
+                    self._organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", path)
                     savedPath = path
                     break
                 else:
@@ -156,11 +156,11 @@ class ARCToolCompress(mobase.IPluginTool):
                 if path.parent.samefile(modDirectory):
                     ARCModName = path.name
                     break
-            if (self.__organizer.modList().state(ARCModName) & mobase.ModState.active) == 0:
+            if (self._organizer.modList().state(ARCModName) & mobase.ModState.active) == 0:
                 # ARC is installed to an inactive mod
-                result = QMessageBox.question(self.__parentWidget, self.__tr("ARCTool mod deactivated"), self.__tr("ARCTool is installed to an inactive mod. /n/nPress Yes to activate it or Cancel to quit the tool"), QMessageBox.StandardButton(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel))
+                result = QMessageBox.question(self.__parentWidget, self.__tr("ARCTool mod deactivated"), self.__tr("ARCTool is installed to an inactive mod. Press Yes to activate it or Cancel to quit the tool"), QMessageBox.StandardButton(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel))
                 if result == QMessageBox.StandardButton.Yes:
-                    self.__organizer.modList().setActive(ARCModName, True)
+                    self._organizer.modList().setActive(ARCModName, True)
                 else:
                     raise ARCToolInactiveException
         return savedPath
@@ -168,13 +168,13 @@ class ARCToolCompress(mobase.IPluginTool):
     def __compressARCFile(self, executable, path):
         compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
         extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
-        gameDataDirectory = self.__organizer.managedGame().dataDirectory().absolutePath()
+        gameDataDirectory = self._organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
         modDirectoryPath = pathlib.Path(modDirectory)
         relative_path = os.path.relpath(path, modDirectory).split(os.path.sep, 1)[1]
         relative_path_parent = os.path.dirname(relative_path)
         
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
             qInfo("Compressing ARC file: " + relative_path)
 
         # create temp and recreate folder structure in ARCTool folder
@@ -184,56 +184,51 @@ class ARCToolCompress(mobase.IPluginTool):
 
         #if files don't exist, copy vanilla .arc to temp, extract, then delete
         if not os.path.isdir(tempDirARC):
-            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                 qInfo("Vanilla arc not extracted. Extracting...")
-            Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
+            pathlib.Path(executablePath + '/' + relative_path).mkdir(parents=True, exist_ok=True)
             shutil.copy(os.path.normpath(gameDataDirectory + '/' + str(relative_path) + ".arc"), os.path.normpath(executablePath + '/' + relative_path_parent))
             output = os.popen('"' + executable + '" ' + extract_args + ' "' + os.path.normpath(executablePath + '/' + relative_path + '.arc"')).read()
-            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
                 qInfo(output)
             os.remove(os.path.normpath(executablePath + '/' + relative_path + '.arc'))
         else:
-            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo("Vanilla arc present")
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                qInfo("Vanilla arc present. Skipping")
 
         #create the output folder
         pathlib.Path(modDirectory + "/Merged ARC/" + relative_path_parent).mkdir(parents=True, exist_ok=True)
         # copy .arc compression order txt
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo("Copying " + os.path.normpath(executablePath + '/' + relative_path + ".arc.txt") + " to " + os.path.normpath(modDirectory + '/Merged ARC/' + relative_path_parent) )
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                qInfo("Copying compression load order .txt")
         shutil.copy(os.path.normpath(executablePath + '/' + relative_path + ".arc.txt"), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path_parent))
 
         #get mod priority list
         modPriorityList = []
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-            qInfo("Loading profile from: " + str(modDirectoryPath.parent) + "\profiles\Default\modlist.txt")
-        with open(str(modDirectoryPath.parent) + "\profiles\Default\modlist.txt") as file:
-            for line in file: 
-                line = line.strip()
-                if (line.startswith('+')):
-                    modPriorityList.append(line.strip('+'))
-        #process mods in reverse since highest priority is at top of file
-        for entry in reversed(modPriorityList):
+        modlist = self._organizer.modList()
+        for mod in modlist.allModsByProfilePriority():
+            if modlist.state(mod) & mobase.ModState.ACTIVE:
+                modPriorityList.append(mod)
+        for entry in (modPriorityList):
             childModARCpath = pathlib.Path(str(modDirectory + '/' + entry) + "/" + relative_path)
             if pathlib.Path(childModARCpath).exists() and not entry == 'Merged ARC':
-                if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                     qInfo("Merging " + entry)
-                    qInfo("Copying " + os.path.normpath(modDirectory + '/' + entry + '/' + relative_path) + " to " + os.path.normpath(modDirectory + '/Merged ARC/' + relative_path))
                 shutil.copytree(os.path.normpath(modDirectory + '/' + entry + '/' + relative_path), os.path.normpath(modDirectory + '/Merged ARC/' + relative_path), dirs_exist_ok=True)
 
         #compress
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + os.path.normpath(modDirectory + '/Merged ARC/' + relative_path) + '"').read()
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
             qInfo(output)
 
         #remove folders and txt
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "remove-temp")):
-            if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "remove-temp")):
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                 qInfo("Cleaning up...")
             shutil.rmtree(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path))
             os.remove(os.path.normpath(modDirectory + '/Merged ARC/' + relative_path + '.arc.txt'))
 
-        if bool(self.__organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
             qInfo("ARC compress complete")
         return True
         
@@ -245,12 +240,12 @@ class ARCToolCompress(mobase.IPluginTool):
                 arcfolder, extension = file.split('.', 1)
                 if extension == "arc.txt":
                     arcFile = dirpath + "\\" + arcfolder
-                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                    if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
                         qInfo("Starting merge for arc: " + arcFile)
                     self.__compressARCFile(executable, arcFile)
                     
     def __getModDirectory(self):
-        return self.__organizer.modsPath()
+        return self._organizer.modsPath()
 
     @staticmethod
     def __withinDirectory(innerPath, outerDir):

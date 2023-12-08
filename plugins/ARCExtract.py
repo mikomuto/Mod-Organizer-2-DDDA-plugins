@@ -51,12 +51,9 @@ class ARCExtract(mobase.IPluginTool):
             return False
         return True
         
-    RE_TEXHEX = re.compile('\.[0-9a-fA-F]{8}')
+    RE_HEXEXTENSION = re.compile('\.[0-9a-fA-F]{8}')
     RE_BACKUP = re.compile('.*BACK *UP.*', re.IGNORECASE)
-    RE_SOUND = re.compile('.*sound.*', re.IGNORECASE)
-    RE_ROM = re.compile('.*rom.+')
-    RE_EXCLUSIONS = re.compile('.*Merged ARC.+')
-
+    
     def name(self):
         return "ARC Extractor"
 
@@ -270,8 +267,7 @@ class ARCExtract(mobase.IPluginTool):
                         qInfo("Backup folder deleted: " + dirpath + "\\" + folder)
                     shutil.rmtree(dirpath + "\\" + folder, ignore_errors=False, onerror=None)
                 # check for extracted arc folders
-                isRomFolder = self.RE_ROM.match(dirpath + "\\" + folder)
-                if isRomFolder and dirpath.find("Merged ARC") < 0:
+                if dirpath.find("rom") >= 0 and dirpath.find("Merged ARC") < 0:
                     arcFolder = dirpath + "\\" + folder
                     rootPath, relativePath = arcFolder.split('\\rom\\', 1)
                     if (os.path.isfile(os.path.normpath(gameDataDirectory + "/rom/" +  relativePath + ".arc"))):
@@ -280,7 +276,7 @@ class ARCExtract(mobase.IPluginTool):
                         self.extractVanillaARCfile(executable, dirpath + "\\" + folder + ".arc")
                         if extractedARCFile in arcFilesSeen:
                             if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                                qInfo("Merged ARC: " + arcFolder + ".arc")
+                                qInfo("ARC Folder: " + arcFolder)
                             if extractedARCFile not in duplicateARCFiles:
                                 duplicateARCFiles.append(extractedARCFile)
                         else:
@@ -307,18 +303,18 @@ class ARCExtract(mobase.IPluginTool):
                 thisfilename, extension = os.path.splitext(file)
                 if extension == ".arc" and file in duplicateARCFiles:
                     arcFile = dirpath + "\\" + file
-                    if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
-                            qInfo("Duplicate ARC2: " + arcFile)
                     if dirpath.find("Merged ARC") < 0:
+                        if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
+                            qInfo("Duplicate ARC2: " + arcFile)
                         self.extractVanillaARCfile(executable, arcFile)
                         self.extractARCFile(executable, arcFile)
                         if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
                             qInfo("Extracting mod arc: " + arcFile)
                 # repair old tex files            
-                isFixableTexFile = self.RE_TEXHEX.match(extension)
-                isSoundFolder = self.RE_SOUND.match(dirpath + "\\" + folder)
-                # we have sound files with hex extenstions too
-                if isFixableTexFile and not isSoundFolder:
+                hasHexFileExtension = self.RE_HEXEXTENSION.match(extension)
+                
+                # we have sound and game manual files with hex extenstions too
+                if hasHexFileExtension and not (dirpath.find("sound") < 0 or dirpath.find("ingamemanual") < 0):
                     if bool(self.__organizer.pluginSetting(self.name(), "log-enabled")):
                         qInfo("Invalid TEX file found: %s" % (dirpath + '/' + file))
                     os.rename(dirpath + '/' + file, dirpath + '/' + thisfilename + ".tex")
