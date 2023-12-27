@@ -45,10 +45,6 @@ class ARCExtract(mobase.IPluginTool):
 
     def init(self, organizer):
         self._organizer = organizer
-        if sys.version_info < (3, 0):
-            qCritical(self.__tr("ARC extractor plugin requires a Python 3 interpreter, but is running on a Python 2 interpreter."))
-            QMessageBox.critical(self.__parentWidget, self.__tr("Incompatible Python version."), self.__tr("This version of the ARC extractor plugin requires a Python 3 interpreter, but Mod Organizer has provided a Python 2 interpreter. You should check for an updated version, including in the Mod Organizer 2 Development Discord Server."))
-            return False
         return True
         
     RE_HEXEXTENSION = re.compile('\.[0-9a-fA-F]{8}')
@@ -289,15 +285,17 @@ class ARCExtract(mobase.IPluginTool):
                     arcFolder = dirpath + "\\" + folder
                     rootPath, relativePath = arcFolder.split('\\rom\\', 1)
                     if (os.path.isfile(os.path.normpath(gameDataDirectory + "/rom/" +  relativePath + ".arc"))):
+                        if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
+                                qInfo("ARC Folder: " + os.path.normpath(arcFolder))
                         extractedARCFile = folder + ".arc"
-                        arcFilesSeen.append(extractedARCFile)
+                        if extractedARCFile not in arcFilesSeen:
+                            arcFilesSeen.append(extractedARCFile)
+                        if extractedARCFile not in duplicateARCFiles:
+                            duplicateARCFiles.append(extractedARCFile)
                         # extract vanilla arc file if needed
                         myProgressD.setLabelText("Extracting: " + mod_name + " : " + folder + ".arc")
                         QCoreApplication.processEvents()
-                        if self.extractVanillaARCfile(executable, dirpath + "\\" + folder + ".arc"):
-                            if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-                                qInfo("ARC Folder: " + os.path.normpath(arcFolder))
-                        else:
+                        if not self.extractVanillaARCfile(executable, dirpath + "\\" + folder + ".arc"):
                             myProgressD.close()
                             return
             for file in filenames:
@@ -311,7 +309,7 @@ class ARCExtract(mobase.IPluginTool):
                     else:
                         arcFilesSeen.append(file)
  
-        # restart since tree may have changed
+        # restart
         for dirpath, dirnames, filenames in os.walk(modDirectory):
             mod_name = os.path.relpath(dirpath, modDirectory).split(os.path.sep, 1)[0]
             myProgressD.setLabelText("Scanning mod: " + mod_name)

@@ -12,6 +12,8 @@ import shutil
 import pathlib
 import sys
 import filecmp
+import json
+from collections import defaultdict
 
 from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo
 from PyQt6.QtGui import QIcon, QFileSystemModel
@@ -165,8 +167,6 @@ class ARCToolCompress(mobase.IPluginTool):
 
     def __compressARCFile(self, executable, arcPath):
         compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
-        extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
-        gameDataDirectory = self._organizer.managedGame().dataDirectory().absolutePath()
         modDirectory = self.__getModDirectory()
         arcPath_parent = os.path.dirname(arcPath)
         executablePath, executableName = os.path.split(executable)
@@ -176,11 +176,8 @@ class ARCToolCompress(mobase.IPluginTool):
             qInfo("Compressing ARC folder: " + arcPath)
             QCoreApplication.processEvents()
 
-        # create temp and recreate folder structure in ARCTool folder
-        pathlib.Path(executablePath + "/rom/").mkdir(parents=True, exist_ok=True)
-        tempDirARC = executablePath + '/' + arcPath
-
         #if files don't exist, end function
+        tempDirARC = executablePath + '/' + arcPath
         if not os.path.isdir(tempDirARC):
             QMessageBox.critical(self.__parentWidget, self.__tr("ERROR"), self.__tr("ARC extraction invalid. Please rerun ARC Extact"))
             return False
@@ -208,7 +205,7 @@ class ARCToolCompress(mobase.IPluginTool):
                 shutil.copytree(os.path.normpath(modDirectory + '/' + mod_name + '/' + arcPath), os.path.normpath(modDirectory + '/Merged ARC/' + arcPath), dirs_exist_ok=True)
                 if mod_name != arctool_mod:
                     #hide arc folder
-                    os.rename(modDirectory + '/' + mod_name + '/' + arcPath, modDirectory + '/' + mod_name + '/' + arcPath + ".mohidden")
+                    #os.rename(modDirectory + '/' + mod_name + '/' + arcPath, modDirectory + '/' + mod_name + '/' + arcPath + ".mohidden")
                     #remove .arc.txt
                     pathlib.Path(modDirectory + '/' + mod_name + '/' + arcPath + ".arc.txt").unlink(missing_ok=True)
 
@@ -237,14 +234,21 @@ class ARCToolCompress(mobase.IPluginTool):
         modDirectory = self.__getModDirectory()
         gameDataDirectory = self._organizer.managedGame().dataDirectory().absolutePath()
         arctool_mod = os.path.relpath(executablePath, modDirectory).split(os.path.sep, 1)[0]
+        arcFilesBuiltDict = defaultdict(list)
+        arcFilesCurrentDict = defaultdict(list)
         
         myProgressD = QProgressDialog(self.__tr("Processing..."), self.__tr("Cancel"), 0, 0, self.__parentWidget)
         myProgressD.forceShow()
         myProgressD.setFixedWidth(320)
         
-        #remove previously merged arc
-        shutil.rmtree(os.path.normpath(modDirectory + '/Merged ARC/rom'), ignore_errors=True)
-        
+        #read previous arc compress info from disk
+        try:
+            with open(modDirectory + '/Merged ARC/arcFileMerge.json', 'r') as file_handle:
+                arcFilesBuiltDict = json.load(file_handle)
+        except FileNotFoundError:
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                qInfo("arcFileMerge.json not found")
+
         #build list of active mod arc folders to compress
         #get mod active list
         modlist = self._organizer.modList()
@@ -257,19 +261,29 @@ class ARCToolCompress(mobase.IPluginTool):
                             arcFolder = dirpath + os.path.sep + folder
                             relative_path = os.path.relpath(arcFolder, modDirectory).split(os.path.sep, 1)[1]
                             if (os.path.isfile(os.path.normpath(gameDataDirectory + os.path.sep + relative_path + ".arc"))):
-                                extractedARCFile = folder + ".arc"
-                                if extractedARCFile not in arcFilesSeen:
-                                    arcFilesSeen.append(extractedARCFile)
-                                    myProgressD.setLabelText("Merging: " + extractedARCFile)
-                                    QCoreApplication.processEvents()
-                                    if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                                        qInfo("Starting merge for arc: " + extractedARCFile)
-                                        QCoreApplication.processEvents()
-                                    if not self.__compressARCFile(executable, relative_path):
-                                        myProgressD.close()
-                                        return
+                                if mod not in arcFilesCurrentDict[relative_path]:
+                                    arcFilesCurrentDict[relative_path].append(mod)
+
+        #process changed merges from dictionary
+        for entry in arcFilesCurrentDict:
+            if entry not in arcFilesBuiltDict or arcFilesCurrentDict[entry] != arcFilesBuiltDict[entry]:
+                    myProgressD.setLabelText("Merging: " + entry)
+                    QCoreApplication.processEvents()
+                    if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                        qInfo("Starting merge for arc: " + entry)
+                        QCoreApplication.processEvents()
+                    if not self.__compressARCFile(executable, entry):
+                        myProgressD.close()
+                        return
+                        
+        #remove stale .arc files from merged folder
+                                    
+        #write arc merge info to json
+        with open(modDirectory + '/Merged ARC/arcFileMerge.json', 'w') as file_handle: 
+            json.dump(arcFilesCurrentDict, file_handle)
+                                    
         #disable arctool mod
-        self._organizer.modList().setActive(arctool_mod, False)
+        #self._organizer.modList().setActive(arctool_mod, False)
         
         myProgressD.close()
         
