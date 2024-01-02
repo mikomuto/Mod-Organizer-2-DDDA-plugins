@@ -176,7 +176,7 @@ class ARCToolCompress(mobase.IPluginTool):
 
         # copy .arc compression order txt and vanilla files
         if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo("Copying " + arcPath + ".arc.txt")
+                qInfo(f'Copying {arcPath}.arc.txt')
                 QCoreApplication.processEvents()
         shutil.copy(os.path.normpath(executablePath + os.sep + arcPath + ".arc.txt"), os.path.normpath(modDirectory + os.sep + 'Merged ARC' + os.sep + arcPath_parent))
         if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
@@ -188,7 +188,7 @@ class ARCToolCompress(mobase.IPluginTool):
             childModARCpath = pathlib.Path(str(modDirectory + os.sep + mod_name) + os.sep + arcPath)
             if pathlib.Path(childModARCpath).exists() and not mod_name == 'Merged ARC':
                 if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                    qInfo("Merging mod: " + mod_name)
+                    qInfo(f'Merging mod: {mod_name}')
                 QCoreApplication.processEvents()
                 shutil.copytree(os.path.normpath(modDirectory + os.sep + mod_name + os.sep + arcPath), os.path.normpath(modDirectory + os.sep + 'Merged ARC' + os.sep + arcPath), dirs_exist_ok=True)
                 if mod_name != arctool_mod:
@@ -218,7 +218,6 @@ class ARCToolCompress(mobase.IPluginTool):
 
     def __process_mods(self, executable):
         executablePath, executableName = os.path.split(executable)
-        arcFilesSeen = []
         modDirectory = self.__getModDirectory()
         gameDataDirectory = self._organizer.managedGame().dataDirectory().absolutePath()
         arctool_mod = os.path.relpath(executablePath, modDirectory).split(os.path.sep, 1)[0]
@@ -239,17 +238,17 @@ class ARCToolCompress(mobase.IPluginTool):
 
         # build list of current active mod arc folders to compress
         modlist = self._organizer.modList()
-        for mod in modlist.allModsByProfilePriority():
-            if modlist.state(mod) & mobase.ModState.ACTIVE:
-                if mod != arctool_mod:
-                    for dirpath, dirnames, filenames in os.walk(modDirectory + os.path.sep + mod):
+        for mod_name in modlist.allModsByProfilePriority():
+            if modlist.state(mod_name) & mobase.ModState.ACTIVE:
+                if mod_name != arctool_mod and mod_name != 'Merged ARC':
+                    for dirpath, dirnames, filenames in os.walk(modDirectory + os.path.sep + mod_name):
                         # check for extracted arc folders
                         for folder in dirnames:
                             arcFolder = dirpath + os.path.sep + folder
                             relative_path = os.path.relpath(arcFolder, modDirectory).split(os.path.sep, 1)[1]
                             if (os.path.isfile(os.path.normpath(gameDataDirectory + os.path.sep + relative_path + ".arc"))):
-                                if mod not in arcFilesCurrentDict[relative_path]:
-                                    arcFilesCurrentDict[relative_path].append(mod)
+                                if mod_name not in arcFilesCurrentDict[relative_path]:
+                                    arcFilesCurrentDict[relative_path].append(mod_name)
 
         # process changed merges from dictionary
         for entry in arcFilesCurrentDict:
@@ -258,10 +257,10 @@ class ARCToolCompress(mobase.IPluginTool):
                         qInfo("Merge cancelled")
                 return
             if entry not in arcFilesPrevBuildDict or arcFilesCurrentDict[entry] != arcFilesPrevBuildDict[entry]:
-                    myProgressD.setLabelText("Merging: " + entry)
+                    myProgressD.setLabelText(f'Merging: {entry}')
                     QCoreApplication.processEvents()
                     if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                        qInfo("Starting merge for arc: " + entry)
+                        qInfo(f'Starting merge for arc: {entry}')
                         QCoreApplication.processEvents()
                     if not self._compress_ARC(executable, arcFilesCurrentDict[entry], entry):
                         myProgressD.close()
