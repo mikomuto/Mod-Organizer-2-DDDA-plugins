@@ -50,16 +50,16 @@ class ARCToolCompress(mobase.IPluginTool):
         return True
 
     def name(self):
-        return "ARC Compressor"
+        return "ARC Merge"
 
     def localizedName(self):
-        return self.__tr("ARC Compressor")
+        return self.__tr("ARC Merge")
 
     def author(self):
         return "MikoMuto"
 
     def description(self):
-        return self.__tr("Runs ARCTool on mods to compress folder to .arc")
+        return self.__tr("Runs ARCTool on mods to merge extracted .arc folders from mods")
 
     def version(self):
         return mobase.VersionInfo(1, 0, 0, 0)
@@ -76,7 +76,7 @@ class ARCToolCompress(mobase.IPluginTool):
         return []
 
     def displayName(self):
-        return self.__tr("ARC Compress")
+        return self.__tr("ARC Merge")
 
     def tooltip(self):
         return self.__tr("Merge extracted .arc files")
@@ -215,7 +215,7 @@ class ARCToolCompress(mobase.IPluginTool):
             os.remove(os.path.normpath(modDirectory + os.sep + mergeDirectory + os.sep + arcPath + '.arc.txt'))
 
         if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-            qInfo("ARC compress complete")
+            qInfo("ARC merge complete")
             QCoreApplication.processEvents()
 
         return True
@@ -233,7 +233,7 @@ class ARCToolCompress(mobase.IPluginTool):
         myProgressD.forceShow()
         myProgressD.setFixedWidth(320)
 
-        # load previous arc compress info
+        # load previous arc merge info
         try:
             with open(modDirectory + os.sep + mergeDirectory + os.sep + 'arcFileMerge.json', 'r') as file_handle:
                 arcFilesPrevBuildDict = json.load(file_handle)
@@ -241,7 +241,7 @@ class ARCToolCompress(mobase.IPluginTool):
             if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                 qInfo("arcFileMerge.json not found")
 
-        # build list of current active mod arc folders to compress
+        # build list of current active mod arc folders to merge
         modlist = self._organizer.modList()
         for mod_name in modlist.allModsByProfilePriority():
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
@@ -281,7 +281,7 @@ class ARCToolCompress(mobase.IPluginTool):
         #self._organizer.modList().setActive(arctool_mod, False)
 
         myProgressD.close()
-        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC folder compression complete"))        
+        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("Merge complete"))        
         self._organizer.refresh()
 
     def __getModDirectory(self):
@@ -296,7 +296,7 @@ class ARCToolCompress(mobase.IPluginTool):
 
     @staticmethod
     def __mainToolName():
-        return "ARC Extractor"
+        return "ARC Extract"
 
 def createPlugin():
     return ARCToolCompress()

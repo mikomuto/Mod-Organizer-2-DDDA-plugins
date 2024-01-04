@@ -50,10 +50,10 @@ class ARCExtract(mobase.IPluginTool):
         return True
 
     def name(self):
-        return "ARC Extractor"
+        return "ARC Extract"
 
     def localizedName(self):
-        return self.__tr("ARC Extractor")
+        return self.__tr("ARC Extract")
 
     def author(self):
         return "MikoMuto"
