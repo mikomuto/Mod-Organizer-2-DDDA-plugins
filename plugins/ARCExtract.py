@@ -83,6 +83,7 @@ class ARCExtract(mobase.IPluginTool):
         mobase.PluginSetting("remove-temp", self.__tr("Delete temporary files and folders"), True),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
         mobase.PluginSetting("verbose-log", self.__tr("Verbose logs"), False),
+        mobase.PluginSetting("dev-option", self.__tr("Extract/Merge textures, gameplay, enemy, and binary text files"), False),
             ]
 
     def displayName(self):
@@ -210,13 +211,14 @@ class ARCExtract(mobase.IPluginTool):
 
     def extractARCFile(self, executable, path):
         args = "-x -pc -dd -alwayscomp -txt -v 7"
-
         mod_directory = self.__getModDirectory()
         executablePath, executableName = os.path.split(executable)
         arc_file_relative_path = os.path.relpath(path, mod_directory).split(os.path.sep, 1)[1]
         arc_folder_relative_path = os.path.splitext(arc_file_relative_path)[0]
         master_arc_path = pathlib.Path(executablePath + os.sep +  arc_folder_relative_path)
-
+        
+        if bool(self._organizer.pluginSetting(self.name(), "dev-option")):
+            args = args + " -tex -xfs -lot -gmd"
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
             qInfo(f'Starting extractARCFile: {path}')
         # extract arc and remove ITM
@@ -261,13 +263,13 @@ class ARCExtract(mobase.IPluginTool):
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
         executablePath, executableName = os.path.split(executable)
         arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
-
+        
         # get mod active list
         modActiveList = []
         modlist = self._organizer.modList()
         for mod_name in modlist.allModsByProfilePriority():
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
-                if mod_name != arctool_mod and mod_name != 'Merged ARC':
+                if mod_name != arctool_mod and 'Merged ARC' not in mod_name:
                     modActiveList.append(mod_name)
 
         myProgressD = QProgressDialog(self.__tr("Starting extraction..."), self.__tr("Cancel"), 0, 0, self.__parentWidget)
@@ -306,7 +308,7 @@ class ARCExtract(mobase.IPluginTool):
                             myProgressD.close()
                             return
                 for file in filenames:
-                    if ".arc" in file:
+                    if file.endswith(".arc"):
                         full_path = dirpath + os.path.sep + file
                         relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
                         if any(relative_path in x for x in arcFilesSeenDict):
@@ -317,6 +319,10 @@ class ARCExtract(mobase.IPluginTool):
                             QCoreApplication.processEvents()
                             if mod_name not in duplicateARCFileDict[relative_path]:
                                 duplicateARCFileDict[relative_path].append(mod_name)
+                            # extract vanilla arc file if needed
+                            if not self.extract_vanilla_arc(executable, dirpath + os.sep + file):
+                                myProgressD.close()
+                                return
                         else:
                             if bool(self._organizer.pluginSetting(self.name(), "verbose-log")):
                                 qInfo(f'Unique ARC: {relative_path}')
@@ -335,6 +341,7 @@ class ARCExtract(mobase.IPluginTool):
 
         myProgressD.close()
         QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC file extraction complete"))
+        self._organizer.refresh()
 
     def __getModDirectory(self):
         return self._organizer.modsPath()
