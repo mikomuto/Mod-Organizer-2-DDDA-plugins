@@ -272,13 +272,19 @@ class ARCExtract(mobase.IPluginTool):
                 if mod_name != arctool_mod and 'Merged ARC' not in mod_name:
                     modActiveList.append(mod_name)
 
-        myProgressD = QProgressDialog(self.__tr("Starting extraction..."), self.__tr("Cancel"), 0, 0, self.__parentWidget)
+        myProgressD = QProgressDialog(self.__tr("ARC Extraction"), self.__tr("Cancel"), 0, 0, self.__parentWidget)
         myProgressD.forceShow()
-        myProgressD.setFixedWidth(420)
+        myProgressD.setFixedWidth(500)
         QCoreApplication.processEvents()
         
+        # set count for progress
+        myProgressD.setMaximum(len(modActiveList))
+        currentIndex = 0
         # build list of active mod duplicate arc files to extract
         for mod_name in modActiveList:
+            # progress update
+            currentIndex += 1
+            myProgressD.setValue(currentIndex)
             myProgressD.setLabelText(f'Scanning: {mod_name}')
             QCoreApplication.processEvents()
             if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
@@ -293,8 +299,10 @@ class ARCExtract(mobase.IPluginTool):
                     full_path = dirpath + os.path.sep + folder + ".arc"
                     relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
                     if (os.path.isfile(os.path.normpath(game_directory + os.path.sep + relative_path))):
+                        myProgressD.setLabelText(f'{mod_name}: {relative_path}')
+                        QCoreApplication.processEvents()
                         if bool(self._organizer.pluginSetting(self.name(), "verbose-log")):
-                            qInfo(f'ARC Folder: {full_path}')                            
+                            qInfo(f'ARC Folder: {full_path}.arc')                            
                         if any(relative_path in x for x in arcFilesSeenDict):
                             mod_where_first_seen = arcFilesSeenDict[relative_path][0]
                             duplicateARCFileDict[relative_path].append(mod_where_first_seen)
@@ -311,6 +319,8 @@ class ARCExtract(mobase.IPluginTool):
                     if file.endswith(".arc"):
                         full_path = dirpath + os.path.sep + file
                         relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
+                        myProgressD.setLabelText(f'{mod_name}: {relative_path}')
+                        QCoreApplication.processEvents()
                         if any(relative_path in x for x in arcFilesSeenDict):
                             mod_where_first_seen = arcFilesSeenDict[relative_path][0]
                             duplicateARCFileDict[relative_path].append(mod_where_first_seen)
@@ -328,16 +338,22 @@ class ARCExtract(mobase.IPluginTool):
                                 qInfo(f'Unique ARC: {relative_path}')
                             if mod_name not in arcFilesSeenDict[relative_path]:
                                 arcFilesSeenDict[relative_path].append(mod_name)
-       
+        # set file count for progress
+        myProgressD.setValue(0)
+        myProgressD.setMaximum(len(duplicateARCFileDict))
+        currentIndex = 0
         # extract based on duplicates found
         for arcFile in duplicateARCFileDict:
+            # progress update
+            myProgressD.setValue(currentIndex)
+            currentIndex += 1
             for mod_name in duplicateARCFileDict[arcFile]:
                 if (myProgressD.wasCanceled()):
                     if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
                         qInfo("Extract cancelled")
                     return
                 if (os.path.isfile(mod_directory + os.sep + mod_name + os.sep + arcFile)):
-                    self.extractARCFile(executable, mod_directory + os.sep + mod_name + os.sep + arcFile)                        
+                    self.extractARCFile(executable, mod_directory + os.sep + mod_name + os.sep + arcFile)
 
         myProgressD.close()
         QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("ARC file extraction complete"))
