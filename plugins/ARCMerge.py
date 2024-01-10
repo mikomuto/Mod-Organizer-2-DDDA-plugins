@@ -13,9 +13,11 @@ import pathlib
 import sys
 import filecmp
 import json
+import time
+import threading
 from collections import defaultdict
 
-from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo
+from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QIcon, QFileSystemModel
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
 
@@ -39,7 +41,6 @@ class ARCFileMissingException(Exception):
     pass
 
 class ARCToolCompress(mobase.IPluginTool):
-
     def __init__(self):
         super(ARCToolCompress, self).__init__()
         self._organizer = None
@@ -47,6 +48,11 @@ class ARCToolCompress(mobase.IPluginTool):
 
     def init(self, organizer):
         self._organizer = organizer
+        self.threadpool = QThreadPool()
+        self.currentIndex = 0
+        self.myProgressD = None
+        self.arcFoldersPrevBuildDict = defaultdict(list)
+        self.arcFoldersCurrentDict = defaultdict(list)
         return True
 
     def name(self):
@@ -97,8 +103,6 @@ class ARCToolCompress(mobase.IPluginTool):
         self.__parentWidget = widget
 
     def display(self):
-        args = []
-
         if not bool(self._organizer.pluginSetting(self.__mainToolName(), "initialised")):
             self._organizer.setPluginSetting(self.__mainToolName(), "ARCTool-path", "")
 
@@ -157,123 +161,28 @@ class ARCToolCompress(mobase.IPluginTool):
                     ARCModName = path.name
                     break
         return savedPath
-        
-    def extract_vanilla_arc(self, executable, path):
-        args = "-x -pc -dd -alwayscomp -txt -v 7"
-        executablePath, executableName = os.path.split(executable)
-        game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
-        mod_directory = self.__getModDirectory()
-        arc_file_relative_path = os.path.relpath(path, mod_directory).split(os.path.sep, 1)[1]
-        arc_folder_relative_path = os.path.splitext(arc_file_relative_path)[0]
-        arc_file_folder_relative_path = os.path.split(arc_file_relative_path)[0]
-
-        # copy vanilla arc to temp, extract, then delete if not already done
-        extractedARCfolder = pathlib.Path(executablePath + os.sep + arc_folder_relative_path)
-        if not (os.path.isdir(extractedARCfolder)):
-            if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-                qInfo("Extracting vanilla ARC: " + arc_file_relative_path)
-            if (os.path.isfile(os.path.join(game_directory, arc_file_relative_path))):
-                pathlib.Path(executablePath + os.sep +  arc_folder_relative_path).mkdir(parents=True, exist_ok=True)
-                shutil.copy(os.path.normpath(os.path.join(game_directory, arc_file_relative_path)), os.path.normpath(executablePath + os.sep + arc_file_folder_relative_path))
-                output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(executablePath + os.sep + arc_file_relative_path + '"')).read()
-                if bool(self._organizer.pluginSetting(self.name(), "verbose-log")):
-                    qInfo(output)
-                # remove .arc file
-                os.remove(os.path.normpath(executablePath + os.sep + arc_file_relative_path))
-                return True
-            else:
-                modName = os.path.relpath(path, mod_directory).split(os.path.sep, 1)[0]
-                QMessageBox.critical(self.__parentWidget, self.__tr("Invalid ARC file path"), self.__tr("Mod: " + modName + "\nFile: " + arc_file_relative_path))
-                if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-                    qInfo("Invalid ARC file: " + path)
-                return False
-        else:
-            return True
-
-    def _compress_ARC(self, executable, modList, arcPath):
-        compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
-        mod_directory = self.__getModDirectory()
-        arcPath_parent = os.path.dirname(arcPath)
-        executablePath, executableName = os.path.split(executable)
-        arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
-        merge_mod = 'Merged ARC - ' + self._organizer.profileName()
-        
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "dev-option")):
-            compress_args = compress_args + " -tex -xfs -lot -gmd"
-
-        # if vanilla files don't exist, extract
-        vanilla_arc_folder = executablePath + os.sep + arcPath
-        if not os.path.isdir(vanilla_arc_folder):
-            if not self.extract_vanilla_arc(executable, vanilla_arc_folder + ".arc"):
-                myProgressD.close()
-                return False
-
-        # create the output folder
-        pathlib.Path(mod_directory + os.sep + merge_mod + os.sep + arcPath_parent).mkdir(parents=True, exist_ok=True)
-
-        # copy .arc compression order txt and vanilla files
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo(f'Copying {arcPath}.arc.txt')
-                QCoreApplication.processEvents()
-        shutil.copy(os.path.normpath(executablePath + os.sep + arcPath + ".arc.txt"), os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath_parent))
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-            qInfo("Merging vanilla files")
-        shutil.copytree(os.path.normpath(executablePath + os.sep + arcPath), os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath), dirs_exist_ok=True)
-
-        # copy mod files to merge folder
-        for mod_name in modList:
-            childModARCpath = pathlib.Path(str(mod_directory + os.sep + mod_name) + os.sep + arcPath)
-            if pathlib.Path(childModARCpath).exists() and not mod_name == merge_mod:
-                if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                    qInfo(f'Merging mod: {mod_name}')
-                QCoreApplication.processEvents()
-                shutil.copytree(os.path.normpath(mod_directory + os.sep + mod_name + os.sep + arcPath), os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath), dirs_exist_ok=True)
-                if mod_name != arctool_mod:
-                    # hide arc folder
-                    #os.rename(mod_directory + os.sep + mod_name + os.sep + arcPath, mod_directory + os.sep + mod_name + os.sep + arcPath + ".mohidden")
-                    # remove .arc.txt
-                    pathlib.Path(mod_directory + os.sep + mod_name + os.sep + arcPath + ".arc.txt").unlink(missing_ok=True)
-
-        # compress
-        output = os.popen('"' + executable + '" ' + compress_args + ' "' + os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath) + '"').read()
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "verbose-log")):
-            qInfo(output)
-            QCoreApplication.processEvents()
-
-        # remove folders and txt
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "remove-temp")):
-            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo("Removing temp files")
-            shutil.rmtree(os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath))
-            os.remove(os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + arcPath + '.arc.txt'))
-
-        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-            qInfo("ARC merge complete")
-            QCoreApplication.processEvents()
-
-        return True
 
     def __process_mods(self, executable):
+        self.arcFoldersPrevBuildDict.clear()
+        self.arcFoldersCurrentDict.clear()
         executablePath, executableName = os.path.split(executable)
         mod_directory = self.__getModDirectory()
+        mo_profile = self._organizer.profileName()
         merge_mod = 'Merged ARC - ' + self._organizer.profileName()
         gameDataDirectory = self._organizer.managedGame().dataDirectory().absolutePath()
-        arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
-        arcFilesPrevBuildDict = defaultdict(list)
-        arcFilesCurrentDict = defaultdict(list)
+        arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]        
 
-        myProgressD = QProgressDialog(self.__tr("ARC Merge"), self.__tr("Cancel"), 0, 0, self.__parentWidget)
-        myProgressD.forceShow()
-        myProgressD.setFixedWidth(320)
-        QCoreApplication.processEvents()
-
+        self.myProgressD = QProgressDialog(self.__tr("ARC Merge"), self.__tr("Cancel"), 0, 0, self.__parentWidget)
+        self.myProgressD.setFixedWidth(320)
+        self.myProgressD.forceShow()
+        
         # load previous arc merge info
         try:
             with open(mod_directory + os.sep + merge_mod + os.sep + 'arcFileMerge.json', 'r') as file_handle:
-                arcFilesPrevBuildDict = json.load(file_handle)
-        except FileNotFoundError:
+                self.arcFoldersPrevBuildDict = json.load(file_handle)
+        except:
             if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                qInfo("arcFileMerge.json not found")
+                qInfo("arcFileMerge.json not found or invalid")
 
         # build list of current active mod arc folders to merge
         modlist = self._organizer.modList()
@@ -286,57 +195,69 @@ class ARCToolCompress(mobase.IPluginTool):
                             arcFolder = dirpath + os.path.sep + folder
                             relative_path = os.path.relpath(arcFolder, mod_directory).split(os.path.sep, 1)[1]
                             if (os.path.isfile(os.path.normpath(gameDataDirectory + os.path.sep + relative_path + ".arc"))):
-                                if mod_name not in arcFilesCurrentDict[relative_path]:
-                                    arcFilesCurrentDict[relative_path].append(mod_name)
+                                if mod_name not in self.arcFoldersCurrentDict[relative_path]:
+                                    self.arcFoldersCurrentDict[relative_path].append(mod_name)
 
-        # set file count for progress
-        myProgressD.setMaximum(len(arcFilesCurrentDict))
-        currentIndex = 0
+        arcToProcess = 0
         # process changed merges from dictionary
-        for entry in arcFilesCurrentDict:
-            if (myProgressD.wasCanceled()):
-                if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                        qInfo("Merge cancelled")
-                return
-            # progress update
-            myProgressD.setValue(currentIndex)
-            currentIndex += 1
-            if entry not in arcFilesPrevBuildDict or arcFilesCurrentDict[entry] != arcFilesPrevBuildDict[entry]:
-                    myProgressD.setLabelText(f'Merging: {entry}')
-                    QCoreApplication.processEvents()
-                    if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
-                        qInfo(f'Starting merge for arc: {entry}')
-                        QCoreApplication.processEvents()
-                    if not self._compress_ARC(executable, arcFilesCurrentDict[entry], entry):
-                        myProgressD.close()
-                        return
-                        
+        for entry in self.arcFoldersCurrentDict:
+            if entry not in self.arcFoldersPrevBuildDict or self.arcFoldersCurrentDict[entry] != self.arcFoldersPrevBuildDict[entry]:
+                # Pass the function to execute
+                worker = mergeThreadWorker(executable, mo_profile, gameDataDirectory, mod_directory, self.arcFoldersCurrentDict[entry], entry)
+                worker.signals.result.connect(self.mergeThreadWorkerOutput)
+                worker.signals.finished.connect(self.mergeThreadWorkerComplete)
+                # Execute
+                self.threadpool.start(worker)
+                arcToProcess += 1
+        # set file count for progress
+        self.myProgressD.setMaximum(arcToProcess)
+        
+        if arcToProcess == 0:            
+            self.modCleanup()
+                    
+    def modCleanup(self):
+        executablePath = self.get_arctool_path()
+        mod_directory = self.__getModDirectory()
+        merge_mod = 'Merged ARC - ' + self._organizer.profileName()
+        arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
+
+        self.myProgressD.setLabelText(f'Cleaning up...')
+                
         # remove stale .arc files from merged folder
-        myProgressD.setLabelText(f'Cleaning up...')
-        QCoreApplication.processEvents()
-        for entry in arcFilesPrevBuildDict:
-            if (myProgressD.wasCanceled()):
+        for entry in self.arcFoldersPrevBuildDict:
+            if (self.myProgressD.wasCanceled()):
                 if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                         qInfo("Merge cancelled")
                 return
-            if entry not in arcFilesCurrentDict:
+            if entry not in self.arcFoldersCurrentDict:
                 if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
                         qInfo(f'Deleting stale arc: {entry}')
-                        QCoreApplication.processEvents()
-                # clean arctool
-                if os.path.exists(mod_directory + os.sep + arctool_mod + os.sep + entry):
-                    shutil.rmtree(os.path.normpath(mod_directory + os.sep + arctool_mod + os.sep + entry))
-                pathlib.Path(mod_directory + os.sep + arctool_mod + os.sep + entry + ".arc.txt").unlink(missing_ok=True)
-                # clean merge
-                pathlib.Path(mod_directory + os.sep + merge_mod + os.sep + entry + ".arc").unlink(missing_ok=True)
+                        # Pass the function to execute
+                        worker = cleanupThreadWorker(entry, mod_directory, merge_mod, arctool_mod)
+                        # Execute
+                        self.threadpool.start(worker)
 
         # write arc merge info to json
         with open(mod_directory + os.sep + merge_mod + os.sep + 'arcFileMerge.json', 'w') as file_handle:
-            json.dump(arcFilesCurrentDict, file_handle)
+            json.dump(self.arcFoldersCurrentDict, file_handle)
+            
+        #enable merge mod
+        self._organizer.modList().setActive(merge_mod, True)
 
-        myProgressD.close()
+        self.myProgressD.hide()
         QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("Merge complete"))        
         self._organizer.refresh()
+        
+    def mergeThreadWorkerComplete(self):
+        if self.currentIndex == self.myProgressD.maximum():
+            self.modCleanup()
+        self.currentIndex += 1
+        qInfo(f'Current index: {self.currentIndex}')
+        self.myProgressD.setValue(self.currentIndex)
+        
+    
+    def mergeThreadWorkerOutput(self, log_out):        
+        qInfo(log_out)
 
     def __getModDirectory(self):
         return self._organizer.modsPath()
@@ -351,6 +272,103 @@ class ARCToolCompress(mobase.IPluginTool):
     @staticmethod
     def __mainToolName():
         return "ARC Extract"
+        
+class cleanupThreadWorker(QRunnable):
+    def __init__(self, entry, modDirectory, merge_mod, arctool_mod):
+        self.entry = entry
+        self.mod_directory = modDirectory
+        self.merge_mod = merge_mod
+        self.arctool_mod = arctool_mod
+        super(cleanupThreadWorker, self).__init__()
+    
+    @pyqtSlot()
+    def run(self):
+        # clean arctool
+        pathlib.Path(self.mod_directory + os.sep + self.arctool_mod + os.sep + self.entry + ".arc.txt").unlink(missing_ok=True)
+        pathlib.Path(self.mod_directory + os.sep + self.arctool_mod + os.sep + self.entry + ".arc").unlink(missing_ok=True)
+        if os.path.exists(self.mod_directory + os.sep + self.arctool_mod + os.sep + self.entry):
+            shutil.rmtree(os.path.normpath(self.mod_directory + os.sep + self.arctool_mod + os.sep + self.entry))
+        # clean merge
+        pathlib.Path(self.mod_directory + os.sep + self.merge_mod + os.sep + self.entry + ".arc.txt").unlink(missing_ok=True)
+        pathlib.Path(self.mod_directory + os.sep + self.merge_mod + os.sep + self.entry + ".arc").unlink(missing_ok=True)
+        if os.path.exists(self.mod_directory + os.sep + self.merge_mod + os.sep + self.entry):
+            shutil.rmtree(os.path.normpath(self.mod_directory + os.sep + self.merge_mod + os.sep + self.entry))
+        return
+
+class mergeThreadWorkerSignals(QObject):
+    finished = pyqtSignal()
+    result = pyqtSignal(str)
+        
+class mergeThreadWorker(QRunnable):
+    def __init__(self, executable, currentProfile, gameDataDirectory, modDirectory, modList, arcFolderPath):
+        self.executable = executable
+        self.profileName = currentProfile
+        self.game_directory = gameDataDirectory
+        self.mod_directory = modDirectory
+        self.modList = modList
+        self.arcFolderPath = arcFolderPath
+        self.signals = mergeThreadWorkerSignals()
+        super(mergeThreadWorker, self).__init__()
+    
+    @pyqtSlot()
+    def run(self):
+        extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
+        compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
+        arcFolderPath_parent = os.path.dirname(self.arcFolderPath)
+        executablePath, executableName = os.path.split(self.executable)
+        arctool_mod = os.path.relpath(executablePath, self.mod_directory).split(os.path.sep, 1)[0]
+        merge_mod = 'Merged ARC - ' + self.profileName
+        log_out = ""
+        
+        # copy vanilla arc to temp, extract, then delete if not already done
+        extractedARCfolder = pathlib.Path(executablePath + os.sep + self.arcFolderPath)
+        if not (os.path.isdir(extractedARCfolder)):
+            log_out += f'Extracting vanilla ARC: {self.arcFolderPath + ".arc"}'
+            if (os.path.isfile(os.path.join(self.game_directory, self.arcFolderPath + ".arc"))):
+                pathlib.Path(executablePath + os.sep +  arcFolderPath_parent).mkdir(parents=True, exist_ok=True)
+                shutil.copy(self.game_directory + os.sep + self.arcFolderPath + ".arc", executablePath + os.sep + arcFolderPath_parent)
+                output = os.popen('"' + self.executable + '" ' + extract_args + ' "' + os.path.normpath(executablePath + os.sep + self.arcFolderPath + ".arc" + '"')).read()
+                #log_out += output + '\n'
+                # remove .arc file
+                os.remove(os.path.normpath(executablePath + os.sep + self.arcFolderPath + ".arc"))
+
+        # # create the output folder
+        pathlib.Path(self.mod_directory + os.sep + merge_mod + os.sep + arcFolderPath_parent).mkdir(parents=True, exist_ok=True)
+
+        # # copy .arc compression order txt and vanilla files
+        log_out += f'\nCopying {self.arcFolderPath}.arc.txt\n'
+                
+        shutil.copy(os.path.normpath(executablePath + os.sep + self.arcFolderPath + ".arc.txt"), os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + arcFolderPath_parent))
+        log_out += "Merging vanilla files\n"
+        shutil.copytree(os.path.normpath(executablePath + os.sep + self.arcFolderPath), os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath), dirs_exist_ok=True)
+
+        # # copy mod files to merge folder
+        for mod_name in self.modList:
+            childModARCpath = pathlib.Path(str(self.mod_directory + os.sep + mod_name) + os.sep + self.arcFolderPath)
+            if pathlib.Path(childModARCpath).exists() and not mod_name == merge_mod:
+                log_out += f'Merging mod: {mod_name}\n'
+                
+                shutil.copytree(os.path.normpath(self.mod_directory + os.sep + mod_name + os.sep + self.arcFolderPath), os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath), dirs_exist_ok=True)
+                if mod_name != arctool_mod:
+                    # remove .arc.txt
+                    pathlib.Path(self.mod_directory + os.sep + mod_name + os.sep + self.arcFolderPath + ".arc.txt").unlink(missing_ok=True)
+
+        # compress
+        output = os.popen('"' + self.executable + '" ' + compress_args + ' "' + os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath) + '"').read()
+        #log_out += output + '\n'
+            
+        # remove folders and txt
+        log_out += "Removing temp files\n"
+        shutil.rmtree(os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath))
+        os.remove(os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath + '.arc.txt'))
+
+        log_out += "ARC merge complete"
+        
+        self.signals.result.emit(log_out)  # Return the result of the processing
+                
+        self.signals.finished.emit()  # Done
+        
+        return
 
 def createPlugin():
     return ARCToolCompress()
