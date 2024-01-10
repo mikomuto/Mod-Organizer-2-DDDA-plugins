@@ -1,11 +1,11 @@
 # This Mod Organizer plugin is released to the pubic under the terms of the GNU GPL version 3, which is accessible from the Free Software Foundation here: https://www.gnu.org/licenses/gpl-3.0-standalone.html
 
-# To use this plugin, place it in the plugins directory of your Mod Organizer install. You will then find a 'Run ARCTool' option under the tools menu.
+# To use this plugin, place it in the plugins directory of your Mod Organizer install. You will then find a 'ARC Merge' option under the tools menu.
 
 # Intended behaviour:
 # * Adds button to tools menu.
 # * If ARCTool' location isn't known (or isn't valid, e.g. ARCTool isn't actually there) when the button is pressed, a file chooser is displayed to find ARCTool.
-# asks user for a folder to compress to arc, copies vanilla arc files from game folder to a temp folder, copies all arc folder files in all mods installed to merge folder, compresses to .arc, then exits
+# copies vanilla arc files from game folder to arc tool folder, copies all arc folder files in all mods installed to merge folder, compresses to .arc, then exits
 
 import os
 import shutil
@@ -13,13 +13,11 @@ import pathlib
 import sys
 import filecmp
 import json
-import time
-import threading
 from collections import defaultdict
 
-from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QCoreApplication, QFileInfo, qInfo, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QIcon, QFileSystemModel
-from PyQt6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
+from PyQt6.QtWidgets import QMessageBox, QProgressDialog
 
 if "mobase" not in sys.modules:
     import mock_mobase as mobase
@@ -197,7 +195,7 @@ class ARCToolCompress(mobase.IPluginTool):
                             if (os.path.isfile(os.path.normpath(gameDataDirectory + os.path.sep + relative_path + ".arc"))):
                                 if mod_name not in self.arcFoldersCurrentDict[relative_path]:
                                     self.arcFoldersCurrentDict[relative_path].append(mod_name)
-
+        self.currentIndex = 0
         arcToProcess = 0
         # process changed merges from dictionary
         for entry in self.arcFoldersCurrentDict:
@@ -209,6 +207,8 @@ class ARCToolCompress(mobase.IPluginTool):
                 # Execute
                 self.threadpool.start(worker)
                 arcToProcess += 1
+        if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+            qInfo(f'ARC merge count: {arcToProcess}')
         # set file count for progress
         self.myProgressD.setMaximum(arcToProcess)
         
@@ -222,6 +222,7 @@ class ARCToolCompress(mobase.IPluginTool):
         arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
 
         self.myProgressD.setLabelText(f'Cleaning up...')
+        qInfo(f'Cleaning up...')
                 
         # remove stale .arc files from merged folder
         for entry in self.arcFoldersPrevBuildDict:
@@ -238,8 +239,12 @@ class ARCToolCompress(mobase.IPluginTool):
                         self.threadpool.start(worker)
 
         # write arc merge info to json
-        with open(mod_directory + os.sep + merge_mod + os.sep + 'arcFileMerge.json', 'w') as file_handle:
-            json.dump(self.arcFoldersCurrentDict, file_handle)
+        try:
+            with open(mod_directory + os.sep + merge_mod + os.sep + 'arcFileMerge.json', 'w') as file_handle:
+                json.dump(self.arcFoldersCurrentDict, file_handle)
+        except:
+            if bool(self._organizer.pluginSetting(self.__mainToolName(), "log-enabled")):
+                qInfo("arcFileMerge.json not found or invalid")
             
         #enable merge mod
         self._organizer.modList().setActive(merge_mod, True)
@@ -248,13 +253,12 @@ class ARCToolCompress(mobase.IPluginTool):
         QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr("Merge complete"))        
         self._organizer.refresh()
         
-    def mergeThreadWorkerComplete(self):
-        if self.currentIndex == self.myProgressD.maximum():
-            self.modCleanup()
+    def mergeThreadWorkerComplete(self):        
         self.currentIndex += 1
         qInfo(f'Current index: {self.currentIndex}')
-        self.myProgressD.setValue(self.currentIndex)
-        
+        if self.currentIndex == self.myProgressD.maximum():
+            self.modCleanup()
+        self.myProgressD.setValue(self.currentIndex)        
     
     def mergeThreadWorkerOutput(self, log_out):        
         qInfo(log_out)
@@ -362,12 +366,9 @@ class mergeThreadWorker(QRunnable):
         shutil.rmtree(os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath))
         os.remove(os.path.normpath(self.mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath + '.arc.txt'))
 
-        log_out += "ARC merge complete"
-        
-        self.signals.result.emit(log_out)  # Return the result of the processing
-                
-        self.signals.finished.emit()  # Done
-        
+        log_out += "ARC merge complete"        
+        self.signals.result.emit(log_out)  # Return logs                
+        self.signals.finished.emit()  # Done        
         return
 
 def createPlugin():
