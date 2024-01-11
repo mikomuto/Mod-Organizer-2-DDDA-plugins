@@ -42,6 +42,7 @@ class ARCToolCompress(mobase.IPluginTool):
     
     arcFoldersPrevBuildDict = defaultdict(list)
     arcFoldersCurrentDict = defaultdict(list)
+    threadCancel = False
     
     def __init__(self):
         super(ARCToolCompress, self).__init__()
@@ -68,7 +69,7 @@ class ARCToolCompress(mobase.IPluginTool):
         return self.__tr("Runs ARCTool on mods to merge extracted .arc folders from mods")
 
     def version(self):
-        return mobase.VersionInfo(1, 0, 0, 0)
+        return mobase.VersionInfo(2, 0, 0, 0)
 
     def requirements(self):
         return [
@@ -138,7 +139,7 @@ class ARCToolCompress(mobase.IPluginTool):
         inGoodLocation = self.__withinDirectory(pathlibPath, mod_directory)
         inGoodLocation |= self.__withinDirectory(pathlibPath, gameDataDirectory)
         if not pathlibPath.is_file() or not inGoodLocation:
-            QMessageBox.information(self.__parentWidget, self.__tr("ARCTool not found"), self.__tr("ARCTool path invalid or not set. \n\nARCTool must be visible within the VFS, so choose an installation either within the game's data directory or within a mod folder. \n\nThis setting can be updated in the Plugins tab of the Mod Organizer Settings menu."))
+            QMessageBox.information(self.__parentWidget, self.__tr("ARCTool not found"), self.__tr("ARCTool path invalid or not set. \n\nARCTool must be visible within the VFS, so choose an installation within a mod folder. \n\nThis setting can be updated in the Plugins tab of the Mod Organizer Settings menu."))
             while True:
                 path = QFileDialog.getOpenFileName(self.__parentWidget, self.__tr("Locate ARCTool.exe"), str(mod_directory), "ARCTool.exe")[0]
                 if path == "":
@@ -168,6 +169,9 @@ class ARCToolCompress(mobase.IPluginTool):
         mod_directory = self.__getModDirectory()
         executable_path = self.get_arctool_path()
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(os.path.sep, 1)[0]
+        
+        # reset cancelled flag
+        ARCToolCompress.threadCancel = False
 
         # get mod active list
         active_mod_list = []
@@ -179,7 +183,7 @@ class ARCToolCompress(mobase.IPluginTool):
 
          # set mod count for progress
         self.myProgressD = QProgressDialog(self.__tr("Scanning..."), self.__tr("Cancel"), 0, 0, self.__parentWidget)
-        self.myProgressD.setFixedWidth(320)
+        self.myProgressD.setFixedWidth(300)
         self.myProgressD.setMaximum(len(active_mod_list))
         self.myProgressD.forceShow()
                 
@@ -220,7 +224,7 @@ class ARCToolCompress(mobase.IPluginTool):
         merge_mod = 'Merged ARC - ' + self._organizer.profileName()
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(os.path.sep, 1)[0]
 
-        self.myProgressD.setLabelText(f'Cleaning up...')
+        self.myProgressD.setLabelText(self.__tr("Cleaning up..."))
         if bool(self._organizer.pluginSetting(self.mainToolName(), "log-enabled")):
             qInfo(f'Cleaning up...')
 
@@ -254,7 +258,10 @@ class ARCToolCompress(mobase.IPluginTool):
         self._organizer.refresh()
     
     def scanThreadWorkerProgress(self, progress): # called after each mod is scanned in scanThreadWorker()
-        self.myProgressD.setValue(progress)
+        if (self.myProgressD.wasCanceled()):
+            ARCToolCompress.threadCancel = True
+        else:
+            self.myProgressD.setValue(progress)
 
     def scanThreadWorkerComplete(self): # called after completion of scanThreadWorker()
         if bool(self._organizer.pluginSetting(self.mainToolName(), "log-enabled")):
@@ -271,13 +278,19 @@ class ARCToolCompress(mobase.IPluginTool):
     def mergeThreadWorkerComplete(self):
         self.currentIndex += 1
         if bool(self._organizer.pluginSetting(self.mainToolName(), "log-enabled")):
-            qInfo(f'Current index: {self.currentIndex}')
+            qInfo(f'Current index: {self.currentIndex} : {self.myProgressD.maximum()}')
         if self.currentIndex == self.myProgressD.maximum():
+            self.currentIndex = 0
             self.modCleanup()
-        self.myProgressD.setValue(self.currentIndex)
+        if (self.myProgressD.wasCanceled()):
+            self.currentIndex = 0
+            ARCToolCompress.threadCancel = True
+        else:
+            self.myProgressD.setValue(self.currentIndex)
 
     def mergeThreadWorkerOutput(self, log_out):
-        qInfo(log_out)
+        if bool(self._organizer.pluginSetting(self.mainToolName(), "log-enabled")):
+            qInfo(log_out)
 
     def __getModDirectory(self):
         return self._organizer.modsPath()
@@ -313,7 +326,7 @@ class scanThreadWorker(QRunnable):
         executable = self._organizer.pluginSetting(ARCToolCompress.mainToolName(), "ARCTool-path")
         executable_path, executableName = os.path.split(executable)
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(os.path.sep, 1)[0]
-        game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
+        game_directory = self._organizer.managedGame().dataDirectory().absolutePath()        
         # load previous arc merge info
         try:
             with open(mod_directory + os.sep + merge_mod + os.sep + 'arcFileMerge.json', 'r') as file_handle:
@@ -325,6 +338,9 @@ class scanThreadWorker(QRunnable):
         mods_scanned = 0        
         # build list of current active mod arc folders to merge        
         for mod_name in self.active_mod_list:
+            # check for cancellation
+            if (ARCToolCompress.threadCancel):
+                return
             mods_scanned += 1
             self.signals.progress.emit(mods_scanned) # update progress
             log_out += f'Scanning: {mod_name}\n'
@@ -337,7 +353,7 @@ class scanThreadWorker(QRunnable):
                             relative_path = os.path.relpath(arcFolder, mod_directory).split(os.path.sep, 1)[1]
                             if (os.path.isfile(os.path.normpath(game_directory + os.path.sep + relative_path + ".arc"))):
                                 if bool(self._organizer.pluginSetting(ARCToolCompress.mainToolName(), "verbose-log")):
-                                    log_out += f'Scan found extracted arc: {mod_name} {relative_path}\n'
+                                    log_out += f'ARC Folder: {relative_path}\n'
                                 if mod_name not in ARCToolCompress.arcFoldersCurrentDict[relative_path]:
                                     ARCToolCompress.arcFoldersCurrentDict[relative_path].append(mod_name)
         self.signals.result.emit(log_out)  # Return log
@@ -383,6 +399,9 @@ class mergeThreadWorker(QRunnable):
         
     @pyqtSlot()
     def run(self):
+        if (ARCToolCompress.threadCancel):
+            log_out += f'Merge cancelled\n'
+            return
         extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
         compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
@@ -403,7 +422,8 @@ class mergeThreadWorker(QRunnable):
                 shutil.copy(game_directory + os.sep + self.arcFolderPath + ".arc", executable_path + os.sep + arcFolderPath_parent)
                 output = os.popen('"' + executable + '" ' + extract_args + ' "' + os.path.normpath(executable_path + os.sep + self.arcFolderPath + ".arc" + '"')).read()
                 if bool(self._organizer.pluginSetting(ARCToolCompress.mainToolName(), "verbose-log")):
-                    log_out += output + '\n'
+                    log_out += "------ start arctool output ------\n"
+                    log_out += output + "------ end arctool output ------\n"
                 # remove .arc file
                 os.remove(os.path.normpath(executable_path + os.sep + self.arcFolderPath + ".arc"))
 
@@ -431,7 +451,8 @@ class mergeThreadWorker(QRunnable):
         # compress
         output = os.popen('"' + executable + '" ' + compress_args + ' "' + os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + self.arcFolderPath) + '"').read()
         if bool(self._organizer.pluginSetting(ARCToolCompress.mainToolName(), "verbose-log")):
-            log_out += output + '\n'
+            log_out += "------ start arctool output ------\n"
+            log_out += output + "------ end arctool output ------\n"
 
         # remove folders and txt
         log_out += "Removing temp files\n"

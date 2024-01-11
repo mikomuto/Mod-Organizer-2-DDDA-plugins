@@ -41,6 +41,7 @@ class ARCFileMissingException(Exception):
 class ARCExtract(mobase.IPluginTool):
     arcFilesSeenDict = defaultdict(list)
     duplicateARCFileDict = defaultdict(list)
+    threadCancel = False
 
     def __init__(self):
         super(ARCExtract, self).__init__()
@@ -84,7 +85,6 @@ class ARCExtract(mobase.IPluginTool):
         mobase.PluginSetting("initialised", self.__tr("Settings have been initialised.  Set to False to reinitialise them."), False),
         mobase.PluginSetting("remove-ITM", self.__tr("Remove identical to master files when extracting ARC files"), True),
         mobase.PluginSetting("delete-ARC", self.__tr("Delete .arc file after extracting"), True),
-        mobase.PluginSetting("remove-temp", self.__tr("Delete temporary files and folders"), True),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
         mobase.PluginSetting("verbose-log", self.__tr("Verbose logs"), False),
             ]
@@ -124,6 +124,9 @@ class ARCExtract(mobase.IPluginTool):
         except ARCToolInactiveException:
             # Error has already been displayed, just quit
             return
+
+         # reset cancelled flag
+        ARCExtract.threadCancel = False
         self._organizer.setPluginSetting(self.name(), "initialised", True)
         self.processMods(executable)
 
@@ -143,7 +146,7 @@ class ARCExtract(mobase.IPluginTool):
         inGoodLocation = self.__withinDirectory(pathlibPath, mod_directory)
         inGoodLocation |= self.__withinDirectory(pathlibPath, game_directory)
         if not pathlibPath.is_file() or not inGoodLocation:
-            QMessageBox.information(self.__parentWidget, self.__tr("ARCTool not found"), self.__tr("ARCTool path invalid or not set. \n\nARCTool must be visible within the VFS, so choose an installation either within the game's data directory or within a mod folder. \n\nThis setting can be updated in the Plugins tab of the Mod Organizer Settings menu."))
+            QMessageBox.information(self.__parentWidget, self.__tr("ARCTool not found"), self.__tr("ARCTool path invalid or not set. \n\nARCTool must be visible within the VFS, choose an installation within a mod folder. \n\nThis setting can be updated in the Plugins tab of the Mod Organizer Settings menu."))
             while True:
                 path = QFileDialog.getOpenFileName(self.__parentWidget, self.__tr("Locate ARCTool.exe"), str(mod_directory), "ARCTool.exe")[0]
                 if path == "":
@@ -193,10 +196,10 @@ class ARCExtract(mobase.IPluginTool):
         # initialise progress dialog
         self.myProgressD = QProgressDialog(self.__tr("ARC Extraction"), self.__tr("Cancel"), 0, 0, self.__parentWidget)
         self.myProgressD.forceShow()
-        self.myProgressD.setFixedWidth(500)
+        self.myProgressD.setFixedWidth(300)
 
         # set mod count for progress
-        self.myProgressD.setLabelText(f'Scanning...')
+        self.myProgressD.setLabelText(self.__tr("Scanning..."))
         self.myProgressD.setMaximum(len(modActiveList))
         currentIndex = 0
 
@@ -209,7 +212,10 @@ class ARCExtract(mobase.IPluginTool):
         self.threadpool.start(worker)
 
     def scanThreadWorkerProgress(self, progress): # called after each mod is scanned in scanThreadWorker()
-        self.myProgressD.setValue(progress)
+        if (self.myProgressD.wasCanceled()):
+            ARCExtract.threadCancel = True
+        else:
+            self.myProgressD.setValue(progress)
 
     def scanThreadWorkerComplete(self): # called after completion of scanThreadWorker()
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
@@ -227,7 +233,7 @@ class ARCExtract(mobase.IPluginTool):
         # set file count for progress
         self.myProgressD.setValue(0)
         self.myProgressD.setMaximum(len(self.duplicateARCFileDict))
-        self.myProgressD.setLabelText(f'Extracting...')
+        self.myProgressD.setLabelText(self.__tr("Extracting..."))
         self.currentIndex = 0
         # extract based on duplicates found
         for arcFile in self.duplicateARCFileDict:
@@ -242,7 +248,7 @@ class ARCExtract(mobase.IPluginTool):
     def extractThreadCleanup(self): # called after completion of all extractThreadWorker()
         merge_mod = 'Merged ARC - ' + self._organizer.profileName()
         self.myProgressD.hide()
-        QMessageBox.information(self.__parentWidget, self.__tr(""), f'Extraction complete\n\nExtracted count: {len(self.duplicateARCFileDict)}\nTotal count: {len(self.arcFilesSeenDict)}')
+        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr(f'Extraction complete'))
         self._organizer.modList().setActive(merge_mod, True)
         self._organizer.refresh()
 
@@ -250,7 +256,11 @@ class ARCExtract(mobase.IPluginTool):
         self.currentIndex += 1
         if self.currentIndex == self.myProgressD.maximum():
             self.extractThreadCleanup()
-        self.myProgressD.setValue(self.currentIndex)
+        if (self.myProgressD.wasCanceled()):
+            ARCExtract.threadCancel = True
+            self.extractThreadCleanup()
+        else:
+            self.myProgressD.setValue(self.currentIndex)
 
     def extractThreadWorkerOutput(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
@@ -283,6 +293,8 @@ class scanThreadWorker(QRunnable):
         mods_scanned = 0
         # build list of active mod duplicate arc files to extract
         for mod_name in self._mod_active_list:
+            if ARCExtract.threadCancel:
+                return
             mods_scanned += 1
             self.signals.progress.emit(mods_scanned) # update progress
             log_out += f'Scanning: {mod_name}\n'
@@ -313,8 +325,8 @@ class scanThreadWorker(QRunnable):
                             if mod_name not in ARCExtract.duplicateARCFileDict[relative_path]:
                                 ARCExtract.duplicateARCFileDict[relative_path].append(mod_name)
                         else:
-                            if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
-                                log_out += f'Unique ARC: {relative_path}\n'
+                            #if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
+                            #log_out += f'Unique ARC: {relative_path}\n'
                             if mod_name not in ARCExtract.arcFilesSeenDict[relative_path]:
                                 ARCExtract.arcFilesSeenDict[relative_path].append(mod_name)
         self.signals.result.emit(log_out)  # Return log
@@ -335,6 +347,9 @@ class extractThreadWorker(QRunnable):
 
     @pyqtSlot()
     def run(self):
+        # check for cancellation
+        if ARCExtract.threadCancel:
+                return
         args = "-x -pc -dd -alwayscomp -txt -v 7"
         executable = self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "ARCTool-path")
         executablePath, executableName = os.path.split(executable)
@@ -359,7 +374,8 @@ class extractThreadWorker(QRunnable):
                 # extract arc and remove ITM
                 output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(mod_directory + os.sep + mod_name + os.sep + self._arc_file + '"')).read()
                 if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
-                    log_out += output
+                    log_out += "------ start arctool output ------\n"
+                    log_out += output + "------ end arctool output ------\n"
                 # remove ITM
                 if bool(self._organizer.pluginSetting("ARC Extract", "remove-ITM")):
                     log_out += 'Deleting duplicate files\n'
