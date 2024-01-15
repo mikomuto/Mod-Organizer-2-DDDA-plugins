@@ -9,10 +9,11 @@
 
 import os
 import re
-import shutil
-import pathlib
 import sys
 import filecmp
+import logging
+import pathlib
+import shutil
 from collections import defaultdict
 
 from PyQt6.QtCore import QCoreApplication, qCritical, QFileInfo, qInfo, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
@@ -42,7 +43,7 @@ class ARCExtract(mobase.IPluginTool):
     arcFilesSeenDict = defaultdict(list)
     duplicateARCFileDict = defaultdict(list)
     threadCancel = False
-
+    
     def __init__(self):
         super(ARCExtract, self).__init__()
         self._organizer = None
@@ -53,6 +54,7 @@ class ARCExtract(mobase.IPluginTool):
         self.threadpool = QThreadPool()
         self.currentIndex = 0
         self.myProgressD = None
+        self.logger = None
         return True
 
     def name(self):
@@ -87,6 +89,8 @@ class ARCExtract(mobase.IPluginTool):
         mobase.PluginSetting("delete-ARC", self.__tr("Delete .arc file after extracting"), True),
         mobase.PluginSetting("log-enabled", self.__tr("Enable logs"), False),
         mobase.PluginSetting("verbose-log", self.__tr("Verbose logs"), False),
+        mobase.PluginSetting("max-threads", self.__tr("Maximum number of threads to allocate"), 2),
+        mobase.PluginSetting("merge-mode", self.__tr("Extract everything and delete ITM"), False),
             ]
 
     def displayName(self):
@@ -112,7 +116,14 @@ class ARCExtract(mobase.IPluginTool):
 
     def display(self):
         if not bool(self._organizer.pluginSetting(self.name(), "initialised")):
+            # reset all            
             self._organizer.setPluginSetting(self.name(), "ARCTool-path", "")
+            self._organizer.setPluginSetting(self.name(), "remove-ITM", True)
+            self._organizer.setPluginSetting(self.name(), "delete-ARC", True)
+            self._organizer.setPluginSetting(self.name(), "log-enabled", False)
+            self._organizer.setPluginSetting(self.name(), "verbose-log", False)
+            self._organizer.setPluginSetting(self.name(), "max-threads", self.threadpool.maxThreadCount())
+            self._organizer.setPluginSetting(self.name(), "merge-mode", False)
         try:
             executable = self.get_arctool_path()
         except ARCToolInvalidPathException:
@@ -125,9 +136,22 @@ class ARCExtract(mobase.IPluginTool):
             # Error has already been displayed, just quit
             return
 
-         # reset cancelled flag
+        # reset cancelled flag
         ARCExtract.threadCancel = False
         self._organizer.setPluginSetting(self.name(), "initialised", True)
+        
+        # logger setup
+        arctool_path = self._organizer.pluginSetting(self.name(), "ARCTool-path")
+        log_file = os.path.dirname(arctool_path) + "\\ARCExtract.log"
+        self.logger = logging.getLogger('ae_logger')
+        f_handler = logging.FileHandler(log_file, 'w+')
+        f_handler.setLevel(logging.DEBUG)
+        f_format = logging.Formatter('%(asctime)s %(message)s')
+        f_handler.setFormatter(f_format)
+        self.logger.addHandler(f_handler)
+        self.logger.propagate = False
+        
+        # run the stuff
         self.processMods(executable)
 
     def __tr(self, str):
@@ -194,14 +218,17 @@ class ARCExtract(mobase.IPluginTool):
                     modActiveList.append(mod_name)
 
         # initialise progress dialog
-        self.myProgressD = QProgressDialog(self.__tr("ARC Extraction"), self.__tr("Cancel"), 0, 0, self.__parentWidget)
-        self.myProgressD.forceShow()
+        self.myProgressD = QProgressDialog(self.__tr("ARC Extraction"), self.__tr("Cancel"), 0, 0, self.__parentWidget)        
         self.myProgressD.setFixedWidth(300)
 
         # set mod count for progress
         self.myProgressD.setLabelText(self.__tr("Scanning..."))
         self.myProgressD.setMaximum(len(modActiveList))
+        self.myProgressD.forceShow()
         currentIndex = 0
+                
+        # set max thread count
+        self.threadpool.setMaxThreadCount(self._organizer.pluginSetting(self.name(), "max-threads"))
 
         # start single scan thread
         worker = scanThreadWorker(self._organizer, modActiveList)
@@ -219,15 +246,15 @@ class ARCExtract(mobase.IPluginTool):
 
     def scanThreadWorkerComplete(self): # called after completion of scanThreadWorker()
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-            qInfo(f'Scan complete')
-            qInfo(f'Duplicate ARC count: {len(self.duplicateARCFileDict)}')
-            qInfo(f'Unique ARC count: {len(self.arcFilesSeenDict)}')
+            self.logger.debug(f'Scan complete')
+            self.logger.debug(f'Duplicate ARC count: {len(self.duplicateARCFileDict)}')
+            self.logger.debug(f'Unique ARC count: {len(self.arcFilesSeenDict)}')
         # start extraction
         self.extractDuplicateARCs()
 
     def scanThreadWorkerOutput(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-            qInfo(log_out)
+            self.logger.debug(log_out)
 
     def extractDuplicateARCs(self): # called after completion of buildDuplicatesDictionary()
         # set file count for progress
@@ -246,25 +273,48 @@ class ARCExtract(mobase.IPluginTool):
             self.threadpool.start(worker)
 
     def extractThreadCleanup(self): # called after completion of all extractThreadWorker()
-        merge_mod = 'Merged ARC - ' + self._organizer.profileName()
+        organizer = self._organizer
+        executable = self.get_arctool_path()
+        mod_directory = self._organizer.modsPath()
+        executablePath, executableName = os.path.split(executable)
+        arctool_mod = os.path.relpath(executablePath, mod_directory).split(os.path.sep, 1)[0]
+        # get mod active list
+        modActiveList = []
+        modlist = organizer.modList()
+        if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
+            self.logger.debug(f'Starting cleanup')
+        for mod_name in modlist.allModsByProfilePriority():
+            if modlist.state(mod_name) & mobase.ModState.ACTIVE:
+                if mod_name != arctool_mod and 'Merged ARC' not in mod_name:
+                    modActiveList.append(mod_name)
+        for mod_name in modActiveList:
+            for dirpath, dirnames, filenames in os.walk(f'{mod_directory}/{mod_name}', topdown=False):
+                for dirname in dirnames:
+                    full_path = os.path.join(dirpath, dirname)
+                    if not os.listdir(full_path):
+                        if bool(self._organizer.pluginSetting(self.name(), "verbose-log")):
+                            self.logger.debug(f'Deleting {full_path}')
+                        os.rmdir(full_path)
+                        pathlib.Path(f'{full_path}.arc.txt').unlink(missing_ok=True)
         self.myProgressD.hide()
-        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr(f'Extraction complete'))
-        self._organizer.modList().setActive(merge_mod, True)
-        self._organizer.refresh()
+        QMessageBox.information(self.__parentWidget, self.__tr(""), self.__tr(f'Extraction complete'))        
+        if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
+            self.logger.debug(f'Extract complete')
 
     def extractThreadWorkerComplete(self): # called after completion of each extractThreadWorker()
         self.currentIndex += 1
+        if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
+            self.logger.debug(f'Extract index: {self.currentIndex} : {self.myProgressD.maximum()}')
         if self.currentIndex == self.myProgressD.maximum():
             self.extractThreadCleanup()
         if (self.myProgressD.wasCanceled()):
             ARCExtract.threadCancel = True
-            self.extractThreadCleanup()
         else:
             self.myProgressD.setValue(self.currentIndex)
 
     def extractThreadWorkerOutput(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
-            qInfo(log_out)
+            self.logger.debug(log_out)
 
     @staticmethod
     def __withinDirectory(innerPath, outerDir):
@@ -294,18 +344,18 @@ class scanThreadWorker(QRunnable):
         # build list of active mod duplicate arc files to extract
         for mod_name in self._mod_active_list:
             if ARCExtract.threadCancel:
-                return
-            mods_scanned += 1
-            self.signals.progress.emit(mods_scanned) # update progress
+                return            
             log_out += f'Scanning: {mod_name}\n'
-            for dirpath, dirnames, filenames in os.walk(mod_directory + os.path.sep + mod_name):
+            for dirpath, dirnames, filenames in os.walk(f'{mod_directory}\{mod_name}'):
                 # check for extracted arc folders
                 for folder in dirnames:
-                    full_path = dirpath + os.path.sep + folder + ".arc"
+                    full_path = f'{dirpath}\{folder}.arc'
                     relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
                     if (os.path.isfile(os.path.normpath(game_directory + os.path.sep + relative_path))):
                         if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                             log_out += f'ARC Folder: {full_path}\n'
+                        if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
+                            ARCExtract.arcFilesSeenDict[relative_path].append(mod_name)
                         if any(relative_path in x for x in ARCExtract.arcFilesSeenDict):
                             mod_where_first_seen = ARCExtract.arcFilesSeenDict[relative_path][0]
                             ARCExtract.duplicateARCFileDict[relative_path].append(mod_where_first_seen)
@@ -314,21 +364,25 @@ class scanThreadWorker(QRunnable):
                         else:
                             if mod_name not in ARCExtract.arcFilesSeenDict[relative_path]:
                                 ARCExtract.arcFilesSeenDict[relative_path].append(mod_name)
+                # check for arc files
                 for file in filenames:
                     if file.endswith(".arc"):
                         full_path = dirpath + os.path.sep + file
                         relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
+                        if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
+                            if mod_name not in ARCExtract.arcFilesSeenDict[relative_path]:
+                                ARCExtract.arcFilesSeenDict[relative_path].append(mod_name)
                         if any(relative_path in x for x in ARCExtract.arcFilesSeenDict):
                             mod_where_first_seen = ARCExtract.arcFilesSeenDict[relative_path][0]
                             ARCExtract.duplicateARCFileDict[relative_path].append(mod_where_first_seen)
-                            log_out += f'Duplicate ARC: {os.path.normpath(dirpath + os.sep + file)}\n'
+                            log_out += f'Duplicate ARC: {dirpath}\{file}\n'
                             if mod_name not in ARCExtract.duplicateARCFileDict[relative_path]:
                                 ARCExtract.duplicateARCFileDict[relative_path].append(mod_name)
                         else:
-                            #if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
-                            #log_out += f'Unique ARC: {relative_path}\n'
                             if mod_name not in ARCExtract.arcFilesSeenDict[relative_path]:
                                 ARCExtract.arcFilesSeenDict[relative_path].append(mod_name)
+            mods_scanned += 1
+            self.signals.progress.emit(mods_scanned) # update progress
         self.signals.result.emit(log_out)  # Return log
         self.signals.finished.emit()  # Done
         return
@@ -349,7 +403,7 @@ class extractThreadWorker(QRunnable):
     def run(self):
         # check for cancellation
         if ARCExtract.threadCancel:
-                return
+            return
         args = "-x -pc -dd -alwayscomp -txt -v 7"
         executable = self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "ARCTool-path")
         executablePath, executableName = os.path.split(executable)
@@ -359,46 +413,54 @@ class extractThreadWorker(QRunnable):
         mod_directory = self._organizer.modsPath()
         log_out = "\n"
         # extract vanilla if needed
-        extractedARCfolder = pathlib.Path(executablePath + os.sep + extracted_arc)
+        extractedARCfolder = pathlib.Path(f'{executablePath}\{extracted_arc}')
         if not (os.path.isdir(extractedARCfolder)):
             log_out += f'Extracting vanilla ARC: {self._arc_file}\n'
-            if (os.path.isfile(os.path.join(game_directory, self._arc_file))):
-                pathlib.Path(executablePath + os.sep +  arc_file_parent).mkdir(parents=True, exist_ok=True)
-                shutil.copy(os.path.normpath(os.path.join(game_directory, self._arc_file)), os.path.normpath(executablePath + os.sep + arc_file_parent))
-                output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(executablePath + os.sep + self._arc_file + '"')).read()
-                # remove .arc file
-                os.remove(os.path.normpath(executablePath + os.sep + self._arc_file))
-        for mod_name in self._mod_list:            
-            if os.path.isfile(mod_directory + os.sep + mod_name + os.sep + self._arc_file):
-                log_out += f'Extracting: {mod_name}{os.sep}{self._arc_file}\n'
-                # extract arc and remove ITM
-                output = os.popen('"' + executable + '" ' + args + ' "' + os.path.normpath(mod_directory + os.sep + mod_name + os.sep + self._arc_file + '"')).read()
+            if (os.path.isfile(f'{game_directory}\{self._arc_file}')):
+                pathlib.Path(f'{executablePath}\{arc_file_parent}').mkdir(parents=True, exist_ok=True)
+                shutil.copy(f'{game_directory}\{self._arc_file}', f'{executablePath}\{arc_file_parent}')
+                command_out = os.popen(f'{executable} {args} \"{executablePath}\{self._arc_file}\"').read()
                 if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                     log_out += "------ start arctool output ------\n"
-                    log_out += output + "------ end arctool output ------\n"
+                    log_out += command_out + "------ end arctool output ------\n"
+                # remove .arc file
+                os.remove(os.path.normpath(executablePath + os.sep + self._arc_file))
+            else:
+                # no matching vanilla file to extract
+                self.signals.finished.emit() # Done
+                return
+        for mod_name in self._mod_list:            
+            if os.path.isfile(f'{mod_directory}\{mod_name}\{self._arc_file}'):
+                log_out += f'Extracting: {mod_name}{os.sep}{self._arc_file}\n'
+                # extract arc and remove ITM
+                command_out = os.popen(f'{executable} {args} \"{mod_directory}\{mod_name}\{self._arc_file}\"').read()
+                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
+                    log_out += "------ start arctool output ------\n"
+                    log_out += command_out + "------ end arctool output ------\n"
                 # remove ITM
                 if bool(self._organizer.pluginSetting("ARC Extract", "remove-ITM")):
-                    log_out += 'Deleting duplicate files\n'
+                    log_out += 'Removing ITM\n'
                     def delete_same_files(dcmp):
                         for name in dcmp.same_files:
-                            if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
-                                log_out += f'Deleting duplicate file {os.path.join(dcmp.right, name)}\n'
                             os.remove(os.path.join(dcmp.right, name))
                         for sub_dcmp in dcmp.subdirs.values():
                             delete_same_files(sub_dcmp)
-                    dcmp = filecmp.dircmp(executablePath + os.sep + extracted_arc, mod_directory + os.sep + mod_name + os.sep +extracted_arc)
+                    dcmp = filecmp.dircmp(f'{executablePath}\{extracted_arc}', f'{mod_directory}\{mod_name}\{extracted_arc}')
                     delete_same_files(dcmp)
                     # delete empty folders
-                    for dirpath, dirnames, filenames in os.walk(extracted_arc, topdown=False):
+                    for dirpath, dirnames, filenames in os.walk(f'{mod_directory}\{mod_name}\{extracted_arc}', topdown=False):
                         for dirname in dirnames:
                             full_path = os.path.join(dirpath, dirname)
                             if not os.listdir(full_path):
-                                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
-                                    log_out += f'Deleting empty folder {full_path}\n'
                                 os.rmdir(full_path)
+                                pathlib.Path(f'{full_path}.arc.txt').unlink(missing_ok=True)
                 # delete arc
                 if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "delete-ARC")):
-                    os.remove(mod_directory + os.sep + mod_name + os.sep + self._arc_file)
+                    log_out += f'Deleting {mod_directory}\{mod_name}\{self._arc_file}\n'
+                    pathlib.Path(f'{mod_directory}\{mod_name}\{self._arc_file}').unlink(missing_ok=True)
+                # remove .arc.txt
+                if not bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
+                    pathlib.Path(f'{mod_directory}\{mod_name}\{self._arc_file}.txt').unlink(missing_ok=True)
                 log_out += "ARC extract complete"
         if log_out != "\n":
             self.signals.result.emit(log_out) # Return log
