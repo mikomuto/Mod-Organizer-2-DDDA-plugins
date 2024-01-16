@@ -25,11 +25,11 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 import mobase
 
 
-class ARCToolInvalidPathException(Exception):
-    """Thrown if ARCTool.exe path can't be found"""
+class ARCtoolInvalidPathException(Exception):
+    """Thrown if ARCtool.exe path can't be found"""
 
 
-class ARCToolMissingException(Exception):
+class ARCtoolMissingException(Exception):
     """Thrown if selected ARC file can't be found"""
 
 
@@ -67,7 +67,7 @@ class ARCMerge(mobase.IPluginTool):
 
     def description(self):
         return self.__tr(
-            "Runs ARCTool on mods to merge extracted .arc folders from mods"
+            "Runs ARCtool on mods to merge extracted .arc folders from mods"
         )
 
     def version(self):
@@ -94,7 +94,7 @@ class ARCMerge(mobase.IPluginTool):
 
     def icon(self):
         arc_tool_path = self._organizer.pluginSetting(
-            self.main_tool_name(), "ARCTool-path"
+            self.main_tool_name(), "ARCtool-path"
         )
         if os.path.exists(arc_tool_path):
             # We can't directly grab the icon from an executable,
@@ -105,7 +105,7 @@ class ARCMerge(mobase.IPluginTool):
             return model.fileIcon(model.index(fin.filePath()))
         else:
             # Fall back to where the user might have put an icon manually.
-            return QIcon("plugins/ARCTool.ico")
+            return QIcon("plugins/ARCtool.ico")
 
     def setParentWidget(self, widget):
         self.__parent_widget = widget
@@ -115,7 +115,7 @@ class ARCMerge(mobase.IPluginTool):
             self.main_tool_name(), "initialised"
         )
         arctool_path = self._organizer.pluginSetting(
-            self.main_tool_name(), "ARCTool-path"
+            self.main_tool_name(), "ARCtool-path"
         )
         if not os.path.isfile(arctool_path) or not initialized:
             # reset
@@ -126,22 +126,22 @@ class ARCMerge(mobase.IPluginTool):
                 self.__parent_widget,
                 self.__tr(""),
                 self.__tr(
-                    "ARCTool.exe not found or tool has been"
+                    "ARCtool.exe not found or tool has been"
                     + " reset. Run ARC Extract to finish setup."
                 ),
             )
             return
 
         # logger setup
-
-        log_file = os.path.dirname(arctool_path) + "\\ARCMerge.log"
-        self.logger = logging.getLogger("am_logger")
-        f_handler = logging.FileHandler(log_file, "w+")
-        f_handler.setLevel(logging.DEBUG)
-        f_format = logging.Formatter("%(asctime)s %(message)s")
-        f_handler.setFormatter(f_format)
-        self.logger.addHandler(f_handler)
-        self.logger.propagate = False
+        if self._organizer.pluginSetting(self.main_tool_name(), "log-enabled"):
+            log_file = os.path.dirname(arctool_path) + "\\ARCMerge.log"
+            self.logger = logging.getLogger("am_logger")
+            f_handler = logging.FileHandler(log_file, "w+")
+            f_handler.setLevel(logging.DEBUG)
+            f_format = logging.Formatter("%(asctime)s %(message)s")
+            f_handler.setFormatter(f_format)
+            self.logger.addHandler(f_handler)
+            self.logger.propagate = False
 
         # check for inactive mods
         if self._organizer.pluginSetting(self.main_tool_name(), "uncheck-mods"):
@@ -172,6 +172,9 @@ class ARCMerge(mobase.IPluginTool):
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setText(f"Mod {mod_name} is disabled. Do you wish to enable it?")
+        msg.setInformativeText(
+            "Disabled mods will not be included in the merge process."
+        )
         msg.setStandardButtons(
             QMessageBox.StandardButton.YesToAll
             | QMessageBox.StandardButton.Yes
@@ -251,7 +254,7 @@ class ARCMerge(mobase.IPluginTool):
         mod_directory = self.__get_mod_directory()
         merge_mod = "Merged ARC - " + self._organizer.profileName()
         executable_path = self._organizer.pluginSetting(
-            self.main_tool_name(), "ARCTool-path"
+            self.main_tool_name(), "ARCtool-path"
         )
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(
             os.path.sep, 1
@@ -382,7 +385,7 @@ class ScanThreadWorker(QRunnable):
         modlist = self._organizer.modList()
         merge_mod = "Merged ARC - " + self._organizer.profileName()
         executable = self._organizer.pluginSetting(
-            ARCMerge.main_tool_name(), "ARCTool-path"
+            ARCMerge.main_tool_name(), "ARCtool-path"
         )
         executable_path, executable_name = os.path.split(executable)
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(
@@ -472,7 +475,7 @@ class CleanupThreadWorker(QRunnable):
         mod_directory = self._organizer.modsPath()
         merge_mod = "Merged ARC - " + self._organizer.profileName()
         executable = self._organizer.pluginSetting(
-            ARCMerge.main_tool_name(), "ARCTool-path"
+            ARCMerge.main_tool_name(), "ARCtool-path"
         )
         executable_path, executable_name = os.path.split(executable)
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(
@@ -524,7 +527,7 @@ class MergeThreadWorker(QRunnable):
         mod_directory = self._organizer.modsPath()
         arc_folder_parent = os.path.dirname(self.arc_folder_path)
         executable = self._organizer.pluginSetting(
-            ARCMerge.main_tool_name(), "ARCTool-path"
+            ARCMerge.main_tool_name(), "ARCtool-path"
         )
         executable_path, executable_name = os.path.split(executable)
         merge_mod = "Merged ARC - " + self._organizer.profileName()

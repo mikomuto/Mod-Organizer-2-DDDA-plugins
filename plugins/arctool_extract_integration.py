@@ -4,7 +4,6 @@
 
 """ add support for ARCtool """
 
-
 import os
 import filecmp
 import logging
@@ -19,23 +18,25 @@ from PyQt6.QtCore import (
     QObject,
     pyqtSignal,
     pyqtSlot,
+    qInfo,
 )
 from PyQt6.QtGui import QIcon, QFileSystemModel
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMessageBox,
+    QProgressDialog,
+)
 
 import mobase
 
 
-class ARCToolInvalidPathException(Exception):
-    """Thrown if ARCTool.exe path can't be found"""
+class ARCtoolInvalidPathException(Exception):
+    """Thrown if ARCtool.exe path can't be found"""
 
 
-class ARCToolMissingException(Exception):
-    """Thrown if selected ARC file can't be found"""
-
-
-class ARCFileMissingException(Exception):
-    """Thrown if selected ARC file can't be found"""
+class ARCtoolMissingException(Exception):
+    """Thrown if selected ARC tool can't be found"""
 
 
 class ARCExtract(mobase.IPluginTool):
@@ -67,7 +68,7 @@ class ARCExtract(mobase.IPluginTool):
         return "MikoMuto"
 
     def description(self):
-        return self.__tr("Runs ARCTool on mods to extract files")
+        return self.__tr("Runs ARCtool on mods to extract files")
 
     def version(self):
         return mobase.VersionInfo(2, 0, 0, 0)
@@ -85,11 +86,11 @@ class ARCExtract(mobase.IPluginTool):
     def settings(self):
         return [
             mobase.PluginSetting("enabled", "enable this plugin", True),
-            mobase.PluginSetting("ARCTool-path", self.__tr("Path to ARCTool.exe"), ""),
+            mobase.PluginSetting("ARCtool-path", self.__tr("Path to ARCtool.exe"), ""),
             mobase.PluginSetting(
                 "initialised",
                 self.__tr(
-                    "Settings have been initialised.  Set to False to reinitialise them."
+                    "Settings have been initialised. Set to False to reinitialise them."
                 ),
                 False,
             ),
@@ -106,7 +107,7 @@ class ARCExtract(mobase.IPluginTool):
             mobase.PluginSetting(
                 "log-enabled",
                 self.__tr(
-                    "Enable logging. Log file can be found in the ARCTool mod folder"
+                    "Enable logging. Log file can be found in the ARCtool mod folder"
                 ),
                 False,
             ),
@@ -116,7 +117,7 @@ class ARCExtract(mobase.IPluginTool):
             mobase.PluginSetting(
                 "uncheck-mods",
                 self.__tr(
-                    "Uncheck ARCTool mod and mods without valid game data after merge."
+                    "Uncheck ARCtool mod and mods without valid game data after merge."
                     + " This will speed up game loading"
                 ),
                 True,
@@ -136,7 +137,7 @@ class ARCExtract(mobase.IPluginTool):
         return self.__tr("Unpacks all ARC files")
 
     def icon(self):
-        arc_tool_path = self._organizer.pluginSetting(self.name(), "ARCTool-path")
+        arc_tool_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
         if os.path.exists(arc_tool_path):
             # We can't directly grab the icon from an executable,
             # but this seems like the simplest alternative.
@@ -146,15 +147,16 @@ class ARCExtract(mobase.IPluginTool):
             return model.fileIcon(model.index(fin.filePath()))
         else:
             # Fall back to where the user might have put an icon manually.
-            return QIcon("plugins/ARCTool.ico")
+            return QIcon("plugins/ARCtool.ico")
 
     def setParentWidget(self, widget):
         self.__parent_widget = widget
 
     def display(self):
+        # reset settings if needed
         if not bool(self._organizer.pluginSetting(self.name(), "initialised")):
             # reset all
-            self._organizer.setPluginSetting(self.name(), "ARCTool-path", "")
+            self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
             self._organizer.setPluginSetting(self.name(), "remove-ITM", True)
             self._organizer.setPluginSetting(self.name(), "delete-ARC", True)
             self._organizer.setPluginSetting(self.name(), "log-enabled", False)
@@ -164,102 +166,122 @@ class ARCExtract(mobase.IPluginTool):
                 self.name(), "max-threads", self.threadpool.maxThreadCount()
             )
             self._organizer.setPluginSetting(self.name(), "merge-mode", False)
+        # verify that ARCtool path is still valid
         try:
             executable = self.get_arctool_path()
-        except ARCToolInvalidPathException:
+        except ARCtoolInvalidPathException:
             QMessageBox.critical(
                 self.__parent_widget,
-                self.__tr("ARCTool path not specified"),
+                self.__tr("ARCtool path not specified"),
                 self.__tr(
-                    "The path to ARCTool.exe wasn't specified. The tool will now exit."
+                    "The path to ARCtool.exe wasn't specified. The tool will now exit."
                 ),
             )
             return
-        except ARCToolMissingException:
+        except ARCtoolMissingException:
             QMessageBox.critical(
                 self.__parent_widget,
-                self.__tr("ARCTool not found"),
-                self.__tr("ARCTool.exe not found. Resetting tool."),
+                self.__tr("ARCtool not found"),
+                self.__tr("ARCtool.exe not found. Resetting tool."),
             )
             return
-
+        # logger setup
+        if self._organizer.pluginSetting(self.name(), "log-enabled"):
+            arctool_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
+            log_file = os.path.dirname(arctool_path) + "\\ARCExtract.log"
+            self.logger = logging.getLogger("ae_logger")
+            f_handler = logging.FileHandler(log_file, "w+")
+            f_handler.setLevel(logging.DEBUG)
+            f_format = logging.Formatter("%(asctime)s %(message)s")
+            f_handler.setFormatter(f_format)
+            self.logger.addHandler(f_handler)
+            self.logger.propagate = False
         # reset cancelled flag
         ARCExtract.threadCancel = False
         self._organizer.setPluginSetting(self.name(), "initialised", True)
-
-        # logger setup
-        arctool_path = self._organizer.pluginSetting(self.name(), "ARCTool-path")
-        log_file = os.path.dirname(arctool_path) + "\\ARCExtract.log"
-        self.logger = logging.getLogger("ae_logger")
-        f_handler = logging.FileHandler(log_file, "w+")
-        f_handler.setLevel(logging.DEBUG)
-        f_format = logging.Formatter("%(asctime)s %(message)s")
-        f_handler.setFormatter(f_format)
-        self.logger.addHandler(f_handler)
-        self.logger.propagate = False
-
+        # check for inactive mods
+        if self._organizer.pluginSetting(self.name(), "uncheck-mods"):
+            modlist = self._organizer.modList()
+            enable_all = False
+            skip_all = False
+            for mod_name in modlist.allModsByProfilePriority():
+                if not modlist.state(mod_name) & mobase.ModState.ACTIVE:
+                    if enable_all:
+                        self._organizer.modList().setActive(mod_name, True)
+                    elif not skip_all:
+                        result = self.show_activate_dialog(mod_name)
+                        if result == QMessageBox.StandardButton.Yes.value:
+                            self._organizer.modList().setActive(mod_name, True)
+                        if result == QMessageBox.StandardButton.YesToAll.value:
+                            enable_all = True
+                            self._organizer.modList().setActive(mod_name, True)
+                        if result == QMessageBox.StandardButton.NoToAll.value:
+                            skip_all = True
         # run the stuff
         self.process_mods(executable)
 
     def __tr(self, txt: str) -> str:
-        return QApplication.translate("ARCTool", txt)
+        return QApplication.translate("ARCtool", txt)
+
+    def show_activate_dialog(self, mod_name):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setText(f"Mod {mod_name} is disabled. Do you wish to enable it?")
+        msg.setInformativeText(
+            "Disabled mods will not be included in the"
+            + " extract process and may result in duplicate"
+            + " .arc files not being detected."
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.YesToAll
+            | QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.NoToAll
+        )
+        retval = msg.exec()
+        return retval
 
     def get_arctool_path(self):
-        saved_path = self._organizer.pluginSetting(self.name(), "ARCTool-path")
-        # ARCTool must be installed within the game's data directory or a mod folder
+        saved_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
         mod_directory = self._organizer.modsPath()
-        game_directory = pathlib.Path(
-            self._organizer.managedGame().dataDirectory().absolutePath()
-        )
         arctool_file_path = pathlib.Path(saved_path)
-        if not os.path.exists(arctool_file_path):
-            self._organizer.setPluginSetting(self.name(), "ARCTool-path", "")
+        if not arctool_file_path.is_file():
+            # scan mod directory for ARCtool.exe
+            modlist = self._organizer.modList()
+            for mod_name in modlist.allMods():
+                arctool_path_check = os.path.join(
+                    mod_directory, mod_name, "ARCtool.exe"
+                )
+                if os.path.isfile(arctool_path_check):
+                    self._organizer.setPluginSetting(
+                        self.name(), "ARCtool-path", arctool_path_check
+                    )
+                    return os.path.normpath(arctool_path_check)
+            self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
             self._organizer.setPluginSetting(self.name(), "initialised", False)
-            raise ARCToolMissingException
-        in_good_location = self.__within_directory(arctool_file_path, mod_directory)
-        in_good_location |= self.__within_directory(arctool_file_path, game_directory)
-        if not arctool_file_path.is_file() or not in_good_location:
+            raise ARCtoolMissingException
+        # we have failed to find it, ask the user
+        if not arctool_file_path.is_file():
             QMessageBox.warning(
                 self.__parent_widget,
                 self.__tr(""),
-                self.__tr(
-                    "ARCTool path invalid or not set. \n\nARCTool must be visible"
-                    + "within the VFS, choose an installation within a mod folder. \n\n"
-                    + "This setting can be updated in the Plugins tab of the Mod"
-                    + "Organizer Settings menu."
-                ),
+                self.__tr("ARCtool path invalid or not set."),
             )
             while True:
                 path = QFileDialog.getOpenFileName(
                     self.__parent_widget,
-                    self.__tr("Locate ARCTool.exe"),
+                    self.__tr("Locate ARCtool.exe"),
                     str(mod_directory),
-                    "ARCTool.exe",
+                    "ARCtool.exe",
                 )[0]
                 if path == "":
                     # Cancel was pressed
-                    raise ARCToolInvalidPathException
+                    raise ARCtoolInvalidPathException
                 arctool_file_path = pathlib.Path(path)
-                in_good_location = self.__within_directory(
-                    arctool_file_path, mod_directory
-                )
-                in_good_location |= self.__within_directory(
-                    arctool_file_path, game_directory
-                )
-                if arctool_file_path.is_file() and in_good_location:
-                    self._organizer.setPluginSetting(self.name(), "ARCTool-path", path)
+                if arctool_file_path.is_file():
+                    self._organizer.setPluginSetting(self.name(), "ARCtool-path", path)
                     saved_path = path
                     break
-                else:
-                    QMessageBox.information(
-                        self.__parent_widget,
-                        self.__tr("Not a compatible location..."),
-                        self.__tr(
-                            """ARCTool only works when within the VFS, so must be
-                             installed within a mod folder. Please select a different
-                             ARC installation"""
-                        ),
-                    )
         return saved_path
 
     def process_mods(self, executable):  # called from display()
@@ -566,7 +588,7 @@ class ExtractThreadWorker(QRunnable):
             return
         args = "-x -pc -dd -alwayscomp -txt -v 7"
         executable = self._organizer.pluginSetting(
-            ARCExtract.name(ARCExtract), "ARCTool-path"
+            ARCExtract.name(ARCExtract), "ARCtool-path"
         )
         executable_path, executable_name = os.path.split(executable)
         arc_file_parent_relpath = os.path.dirname(self._arc_file)
