@@ -303,12 +303,12 @@ class ARCMerge(mobase.IPluginTool):
                 if not modlist.state(mod_name) & mobase.ModState.VALID:
                     self._organizer.modList().setActive(mod_name, False)
         self.merge_progress_dialog.hide()
-        # enable merge mod
-        self._organizer.refresh()
-        self._organizer.modList().setActive(merge_mod, True)
         QMessageBox.information(
             self.__parent_widget, self.__tr(""), self.__tr("Merge complete")
         )
+        # self._organizer.refresh()
+        # enable merge mod
+        # self._organizer.modList().setActive(merge_mod, True)
 
     def scan_thread_worker_progress(
         self, progress
@@ -522,7 +522,7 @@ class MergeThreadWorker(QRunnable):
             log_out += "Merge cancelled\n"
             return
         extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
-        compress_args = "-c -pc -dd -alwayscomp -txt -v 7"
+        compress_args = "-c -pc -dd -alwayscomp -tex -xfs -gmd -txt -v 7"
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
         mod_directory = self._organizer.modsPath()
         arc_folder_parent = os.path.dirname(self.arc_folder_path)

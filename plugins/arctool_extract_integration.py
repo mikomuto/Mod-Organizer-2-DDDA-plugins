@@ -9,6 +9,7 @@ import filecmp
 import logging
 import pathlib
 import shutil
+import hashlib
 from collections import defaultdict
 
 from PyQt6.QtCore import (
@@ -244,8 +245,8 @@ class ARCExtract(mobase.IPluginTool):
     def get_arctool_path(self):
         saved_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
         mod_directory = self._organizer.modsPath()
-        arctool_file_path = pathlib.Path(saved_path)
-        if not arctool_file_path.is_file():
+        arctool_md5sum = '7bc78d74d84edbf2909dc7291c09ba82'
+        if not os.path.isfile(saved_path):
             # scan mod directory for ARCtool.exe
             modlist = self._organizer.modList()
             for mod_name in modlist.allMods():
@@ -253,43 +254,28 @@ class ARCExtract(mobase.IPluginTool):
                     mod_directory, mod_name, "ARCtool.exe"
                 )
                 if os.path.isfile(arctool_path_check):
-                    self._organizer.setPluginSetting(
-                        self.name(), "ARCtool-path", arctool_path_check
-                    )
-                    return os.path.normpath(arctool_path_check)
+                    file_hash = hashlib.md5()
+                    with open(arctool_path_check, "rb") as f:
+                        while chunk := f.read(8192):
+                            file_hash.update(chunk)
+                    if file_hash.hexdigest() == arctool_md5sum:
+                        self._organizer.setPluginSetting(self.name(), "ARCtool-path", arctool_path_check)
+                        return os.path.normpath(arctool_path_check)
+                    else:
+                        QMessageBox.critical(self.__parent_widget,self.__tr("ARCtool error"),self.__tr("Invalid md5sum found for: ") + arctool_path_check + "\nTool will continue to check for a valid ARCtool.exe")
+            # failed to find set arctool path. reset and alert
             self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
             self._organizer.setPluginSetting(self.name(), "initialised", False)
             raise ARCtoolMissingException
-        # we have failed to find it, ask the user
-        if not arctool_file_path.is_file():
-            QMessageBox.warning(
-                self.__parent_widget,
-                self.__tr(""),
-                self.__tr("ARCtool path invalid or not set."),
-            )
-            while True:
-                path = QFileDialog.getOpenFileName(
-                    self.__parent_widget,
-                    self.__tr("Locate ARCtool.exe"),
-                    str(mod_directory),
-                    "ARCtool.exe",
-                )[0]
-                if path == "":
-                    # Cancel was pressed
-                    raise ARCtoolInvalidPathException
-                arctool_file_path = pathlib.Path(path)
-                if arctool_file_path.is_file():
-                    self._organizer.setPluginSetting(self.name(), "ARCtool-path", path)
-                    saved_path = path
-                    break
-        return saved_path
+        return os.path.normpath(saved_path)
 
     def process_mods(self, executable):  # called from display()
         self.arc_files_seen_dict.clear()
         self.arc_files_duplicate_dict.clear()
         mod_directory = self._organizer.modsPath()
-        executable_path, executable_name = os.path.split(executable)
-        arctool_mod = os.path.relpath(executable_path, mod_directory).split(
+        self.logger.debug("executable: " + executable)
+        executable_path_name = executable.split(os.sep)
+        arctool_mod = os.path.relpath(executable_path_name[0], mod_directory).split(
             os.path.sep, 1
         )[0]
 
@@ -372,8 +358,8 @@ class ARCExtract(mobase.IPluginTool):
         self,
     ):  # called after completion of all ExtractThreadWorker()
         organizer = self._organizer
-        executable = self.get_arctool_path()
-        mod_directory = self._organizer.modsPath()
+        executable = organizer.pluginSetting(self.name(), "ARCtool-path")
+        mod_directory = organizer.modsPath()
         executable_path, executable_name = os.path.split(executable)
         arctool_mod = os.path.relpath(executable_path, mod_directory).split(
             os.path.sep, 1
@@ -381,7 +367,7 @@ class ARCExtract(mobase.IPluginTool):
         # get mod active list
         mod_active_list = []
         modlist = organizer.modList()
-        if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
+        if bool(organizer.pluginSetting(self.name(), "log-enabled")):
             self.logger.debug("Starting cleanup")
         for mod_name in modlist.allModsByProfilePriority():
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
@@ -395,7 +381,7 @@ class ARCExtract(mobase.IPluginTool):
                     full_path = os.path.join(dirpath, dirname)
                     if not os.listdir(full_path):
                         if bool(
-                            self._organizer.pluginSetting(self.name(), "verbose-log")
+                            organizer.pluginSetting(self.name(), "verbose-log")
                         ):
                             self.logger.debug("Deleting %s", full_path)
                         os.rmdir(full_path)
@@ -430,13 +416,6 @@ class ARCExtract(mobase.IPluginTool):
     def extract_thread_worker_output(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
             self.logger.debug(log_out)
-
-    @staticmethod
-    def __within_directory(inner_path, outer_dir):
-        for path in inner_path.parents:
-            if path.samefile(outer_dir):
-                return True
-        return False
 
 
 class ScanThreadWorkerSignals(QObject):
