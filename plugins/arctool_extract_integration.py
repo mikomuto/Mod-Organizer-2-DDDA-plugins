@@ -245,7 +245,7 @@ class ARCExtract(mobase.IPluginTool):
     def get_arctool_path(self):
         saved_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
         mod_directory = self._organizer.modsPath()
-        arctool_md5sum = '7bc78d74d84edbf2909dc7291c09ba82'
+        arctool_md5sum = 'a67c938dd85f9161da47b8b851dd8a8e'
         if not os.path.isfile(saved_path):
             # scan mod directory for ARCtool.exe
             modlist = self._organizer.modList()
@@ -262,7 +262,7 @@ class ARCExtract(mobase.IPluginTool):
                         self._organizer.setPluginSetting(self.name(), "ARCtool-path", arctool_path_check)
                         return os.path.normpath(arctool_path_check)
                     else:
-                        QMessageBox.critical(self.__parent_widget,self.__tr("ARCtool error"),self.__tr("Invalid md5sum found for: ") + arctool_path_check + "\nTool will continue to check for a valid ARCtool.exe")
+                        QMessageBox.critical(self.__parent_widget,self.__tr("ARCtool error"),self.__tr("Invalid md5sum found for: ") + arctool_path_check + "\nTool will continue to check for a valid ARCtool.exe\n" + arctool_md5sum + " Expected\n" + file_hash.hexdigest() + " Found" )
             # failed to find set arctool path. reset and alert
             self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
             self._organizer.setPluginSetting(self.name(), "initialised", False)
@@ -273,7 +273,6 @@ class ARCExtract(mobase.IPluginTool):
         self.arc_files_seen_dict.clear()
         self.arc_files_duplicate_dict.clear()
         mod_directory = self._organizer.modsPath()
-        self.logger.debug("executable: " + executable)
         executable_path_name = executable.split(os.sep)
         arctool_mod = os.path.relpath(executable_path_name[0], mod_directory).split(
             os.path.sep, 1
@@ -590,9 +589,8 @@ class ExtractThreadWorker(QRunnable):
                     os.path.join(game_directory, self._arc_file),
                     os.path.join(executable_path, arc_file_parent_relpath),
                 )
-                command_out = os.popen(
-                    f'{executable} {args} "{arc_file_fullpath}"'
-                ).read()
+                command = f'"{executable}" {args} "{arc_fullpath}"'
+                command_out = os.popen(command).read()
                 if bool(
                     self._organizer.pluginSetting(
                         ARCExtract.name(ARCExtract), "verbose-log"
@@ -611,7 +609,14 @@ class ExtractThreadWorker(QRunnable):
             if os.path.isfile(arc_fullpath):
                 log_out += f"Extracting: {mod_name} {self._arc_file}\n"
                 # extract arc and remove ITM
-                command_out = os.popen(f'{executable} {args} "{arc_fullpath}"').read()
+                command = f'"{executable}" {args} "{arc_fullpath}"'
+                if bool(
+                    self._organizer.pluginSetting(
+                        ARCExtract.name(ARCExtract), "verbose-log"
+                    )
+                ):
+                    log_out += "Extract command: " + command + "\n"
+                command_out = os.popen(command).read()
                 if bool(
                     self._organizer.pluginSetting(
                         ARCExtract.name(ARCExtract), "verbose-log"

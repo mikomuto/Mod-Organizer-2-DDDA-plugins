@@ -547,15 +547,9 @@ class MergeThreadWorker(QRunnable):
                     os.path.join(game_directory, self.arc_folder_path + ".arc"),
                     os.path.join(executable_path, arc_folder_parent, ""),
                 )
-                output = os.popen(
-                    '"'
-                    + executable
-                    + '" '
-                    + extract_args
-                    + ' "'
-                    + os.path.join(executable_path, self.arc_folder_path + ".arc")
-                    + '"'
-                ).read()
+                arc_fullpath = self.arc_folder_path + ".arc"
+                command = f'"{executable}" {extract_args} "{arc_fullpath}"'
+                output = os.popen(command).read()
                 if bool(
                     self._organizer.pluginSetting(
                         ARCMerge.main_tool_name(), "verbose-log"
@@ -605,17 +599,9 @@ class MergeThreadWorker(QRunnable):
                     ),
                 )
         # compress
-        output = os.popen(
-            '"'
-            + executable
-            + '" '
-            + compress_args
-            + ' "'
-            + os.path.normpath(
-                mod_directory + os.sep + merge_mod + os.sep + self.arc_folder_path
-            )
-            + '"'
-        ).read()
+        arc_fullpath =  os.path.normpath(mod_directory + os.sep + merge_mod + os.sep + self.arc_folder_path)
+        command = f'"{executable}" {compress_args} "{arc_fullpath}"'
+        output = os.popen(command).read()
         if bool(
             self._organizer.pluginSetting(ARCMerge.main_tool_name(), "verbose-log")
         ):
