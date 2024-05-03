@@ -337,6 +337,7 @@ class ARCMerge(mobase.IPluginTool):
         QMessageBox.information(
             self.__parent_widget, self.__tr(""), self.__tr("Merge complete")
         )
+        self.logger.handlers.clear()
         # self._organizer.refresh()
         # enable merge mod
         self._organizer.modList().setActive(merge_mod, True)
@@ -465,8 +466,16 @@ class ScanThreadWorker(QRunnable):
                             relative_path = os.path.relpath(
                                 arc_folder, mod_directory
                             ).split(os.path.sep, 1)[1]
+                            # check for matching game file or arc.txt
+                            #  (fix for gog to steam merge)
                             if os.path.isfile(
                                 os.path.join(game_directory, relative_path + ".arc")
+                            ) or os.path.isfile(
+                                os.path.join(
+                                    mod_directory,
+                                    mod_name,
+                                    relative_path + ".arc.txt",
+                                )
                             ):
                                 if bool(
                                     self._organizer.pluginSetting(
@@ -483,6 +492,7 @@ class ScanThreadWorker(QRunnable):
                                     ARCMerge.arc_folders_current_build_dict[
                                         relative_path
                                     ].append(mod_name)
+
         self.signals.result.emit(log_out)  # Return log
         self.signals.finished.emit()  # Done
         return
@@ -541,7 +551,7 @@ class MergeThreadWorker(QRunnable):
             mod_directory, merge_mod, self.arc_folder_path
         )
         if not os.path.isdir(extracted_arc_folder):
-            log_out += f'Extracting vanilla ARC: {self.arc_folder_path + ".arc"}'
+            log_out += f'Extracting vanilla ARC: {self.arc_folder_path + ".arc"}\n'
             if os.path.isfile(
                 os.path.join(game_directory, self.arc_folder_path + ".arc")
             ):
@@ -571,7 +581,7 @@ class MergeThreadWorker(QRunnable):
         # copy mod files to merge folder
         for mod_name in self.mods_to_merge:
             child_mod_arc_path = os.path.join(
-                mod_directory, mod_name, self.arc_folder_path, ""
+                mod_directory, mod_name, self.arc_folder_path
             )
             if pathlib.Path(child_mod_arc_path).exists():
                 log_out += f"Merging mod: {mod_name}\n"

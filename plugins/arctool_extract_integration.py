@@ -385,6 +385,7 @@ class ARCExtract(mobase.IPluginTool):
         )
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
             self.logger.debug("Extraction complete")
+        self.logger.handlers.clear()
 
     def extract_thread_worker_complete(
         self,
@@ -587,7 +588,9 @@ class ScanThreadWorker(QRunnable):
                             # strip .arc extension
                             relative_folder_path = os.path.splitext(relative_path)[0]
                             if (
-                                mod_name
+                                relative_folder_path
+                                in ARCExtract.arc_folders_previous_build_dict
+                                and mod_name
                                 in ARCExtract.arc_folders_previous_build_dict[
                                     relative_folder_path
                                 ]
@@ -712,8 +715,12 @@ class ExtractThreadWorker(QRunnable):
 
                     def list_identical_files(dcmp):
                         filelist = []
-                        for name in dcmp.same_files:
-                            filelist.append(os.path.join(dcmp.right, name))
+                        try:
+                            for name in dcmp.same_files:
+                                filelist.append(os.path.join(dcmp.right, name))
+                        except OSError as e:
+                            # do nothing
+                            error = e
                         for sub_dcmp in dcmp.subdirs.values():
                             for name in list_identical_files(sub_dcmp):
                                 filelist.append(name)
