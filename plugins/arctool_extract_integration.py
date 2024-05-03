@@ -5,6 +5,7 @@
 """ add support for ARCtool """
 
 import os
+import json
 import filecmp
 import logging
 import pathlib
@@ -43,12 +44,13 @@ class ARCtoolMissingException(Exception):
 class ARCExtract(mobase.IPluginTool):
     arc_files_seen_dict = defaultdict(list)
     arc_files_duplicate_dict = defaultdict(list)
-    threadCancel = False
+    arc_folders_previous_build_dict = defaultdict(list)
 
     def __init__(self):
         super(ARCExtract, self).__init__()
         self._organizer = None
         self.threadpool = None
+        self.threadcancel = False
         self.current_index = 0
         self.extract_progress_dialog = None
         self.logger = None
@@ -57,6 +59,7 @@ class ARCExtract(mobase.IPluginTool):
     def init(self, organizer):
         self._organizer = organizer
         self.threadpool = QThreadPool()
+        self.threadcancel = False
         return True
 
     def name(self):
@@ -332,9 +335,7 @@ class ARCExtract(mobase.IPluginTool):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
             self.logger.debug(log_out)
 
-    def extract_duplicate_arcs(
-        self,
-    ):  # called after completion of buildDuplicatesDictionary()
+    def extract_duplicate_arcs(self):
         # set file count for progress
         self.extract_progress_dialog.setValue(0)
         self.extract_progress_dialog.setMaximum(len(self.arc_files_duplicate_dict))
@@ -423,8 +424,34 @@ class ScanThreadWorker(QRunnable):
     @pyqtSlot()
     def run(self):
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
-        mod_directory = self._organizer.modsPath()
         log_out = "\n"
+        mod_directory = self._organizer.modsPath()
+        merge_mod = "Merged ARC - " + self._organizer.profileName()
+        previous_merge_file = os.path.join(
+            mod_directory, merge_mod, "arcFileMerge.json"
+        )
+
+        # create merge folder if not exist
+        pathlib.Path(
+            os.path.join(
+                mod_directory,
+                merge_mod,
+            )
+        ).mkdir(parents=True, exist_ok=True)
+
+        # load previous arc merge info
+        if os.path.isfile(previous_merge_file):
+            try:
+                with open(
+                    previous_merge_file,
+                    "r",
+                    encoding="utf-8",
+                ) as file_handle:
+                    ARCExtract.arc_folders_previous_build_dict = json.load(file_handle)
+            except IOError:
+                if bool(self._organizer.pluginSetting(self._name(), "log-enabled")):
+                    log_out += "arcFileMerge.json not found or invalid"
+
         mods_scanned = 0
         # build list of active mod duplicate arc files to extract
         for mod_name in self._mod_active_list:
@@ -556,6 +583,42 @@ class ScanThreadWorker(QRunnable):
                                 ARCExtract.arc_files_duplicate_dict[
                                     relative_path
                                 ].append(mod_name)
+                            # update arc_folders_previous_build_dict
+                            # strip .arc extension
+                            relative_folder_path = os.path.splitext(relative_path)[0]
+                            if (
+                                mod_name
+                                in ARCExtract.arc_folders_previous_build_dict[
+                                    relative_folder_path
+                                ]
+                            ):
+                                ARCExtract.arc_folders_previous_build_dict[
+                                    relative_folder_path
+                                ].remove(mod_name)
+                                # update arcFileMerge.json
+                                try:
+                                    with open(
+                                        os.path.join(
+                                            mod_directory,
+                                            merge_mod,
+                                            "arcFileMerge.json",
+                                        ),
+                                        "w",
+                                        encoding="utf-8",
+                                    ) as file_handle:
+                                        json.dump(
+                                            ARCExtract.arc_folders_previous_build_dict,
+                                            file_handle,
+                                        )
+                                except IOError:
+                                    if bool(
+                                        self._organizer.pluginSetting(
+                                            ARCExtract.name(ARCExtract), "log-enabled"
+                                        )
+                                    ):
+                                        log_out += (
+                                            "arcFileMerge.json not found or invalid"
+                                        )
                         else:
                             if (
                                 mod_name
@@ -602,31 +665,6 @@ class ExtractThreadWorker(QRunnable):
         extracted_arc_folder_fullpath = os.path.join(
             mod_directory, merge_mod, extracted_arc_folder_relpath
         )
-        if not os.path.isdir(extracted_arc_folder_fullpath):
-            log_out += f"Extracting vanilla ARC: {self._arc_file}\n"
-            if os.path.isfile(os.path.join(game_directory, self._arc_file)):
-                pathlib.Path(extracted_arc_folder_fullpath).mkdir(
-                    parents=True, exist_ok=True
-                )
-                shutil.copy(
-                    os.path.join(game_directory, self._arc_file),
-                    os.path.join(mod_directory, merge_mod, arc_file_parent_relpath),
-                )
-                command = f'"{executable}" {args} "{arc_file_fullpath}"'
-                command_out = os.popen(command).read()
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "verbose-log"
-                    )
-                ):
-                    log_out += "------ start arctool output ------\n"
-                    log_out += command_out + "------ end arctool output ------\n"
-                # remove .arc file
-                os.remove(arc_file_fullpath)
-            else:
-                # no matching vanilla file to extract
-                self.signals.finished.emit()  # Done
-                return
         for mod_name in self._mod_list:
             arc_fullpath = os.path.join(mod_directory, mod_name, self._arc_file)
             if os.path.isfile(arc_fullpath):
@@ -647,6 +685,27 @@ class ExtractThreadWorker(QRunnable):
                 ):
                     log_out += "------ start arctool output ------\n"
                     log_out += command_out + "------ end arctool output ------\n"
+                if not os.path.isdir(extracted_arc_folder_fullpath):
+                    log_out += f"Extracting vanilla ARC: {self._arc_file}\n"
+                if os.path.isfile(os.path.join(game_directory, self._arc_file)):
+                    pathlib.Path(extracted_arc_folder_fullpath).mkdir(
+                        parents=True, exist_ok=True
+                    )
+                    shutil.copy(
+                        os.path.join(game_directory, self._arc_file),
+                        os.path.join(mod_directory, merge_mod, arc_file_parent_relpath),
+                    )
+                    command = f'"{executable}" {args} "{arc_file_fullpath}"'
+                    command_out = os.popen(command).read()
+                    if bool(
+                        self._organizer.pluginSetting(
+                            ARCExtract.name(ARCExtract), "verbose-log"
+                        )
+                    ):
+                        log_out += "------ start arctool output ------\n"
+                        log_out += command_out + "------ end arctool output ------\n"
+                    # remove .arc file
+                    os.remove(arc_file_fullpath)
                 # remove ITM
                 if bool(self._organizer.pluginSetting("ARC Extract", "remove-ITM")):
                     log_out += "Removing ITM\n"
@@ -700,6 +759,12 @@ class ExtractThreadWorker(QRunnable):
                         for dirname in dirnames:
                             full_path = os.path.join(dirpath, dirname)
                             if not os.listdir(full_path):
+                                if bool(
+                                    self._organizer.pluginSetting(
+                                        ARCExtract.name(ARCExtract), "verbose-log"
+                                    )
+                                ):
+                                    log_out += f"Removed empty folder: {full_path}\n"
                                 os.rmdir(full_path)
                                 pathlib.Path(f"{full_path}.arc.txt").unlink(
                                     missing_ok=True
@@ -718,9 +783,7 @@ class ExtractThreadWorker(QRunnable):
                         ARCExtract.name(ARCExtract), "merge-mode"
                     )
                 ):
-                    pathlib.Path(os.path.join(arc_fullpath, ".txt")).unlink(
-                        missing_ok=True
-                    )
+                    pathlib.Path(f"{arc_fullpath}.txt").unlink(missing_ok=True)
                 log_out += "ARC extract complete"
         if log_out != "\n":
             self.signals.result.emit(log_out)  # Return log

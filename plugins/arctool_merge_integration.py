@@ -327,7 +327,6 @@ class ARCMerge(mobase.IPluginTool):
             ):
                 self.logger.debug("arcFileMerge.json not found or invalid")
 
-        # disable arctool mod
         if self._organizer.pluginSetting(self.main_tool_name(), "uncheck-mods"):
             # disable all invalid mods
             modlist = self._organizer.modList()
@@ -340,7 +339,7 @@ class ARCMerge(mobase.IPluginTool):
         )
         # self._organizer.refresh()
         # enable merge mod
-        # self._organizer.modList().setActive(merge_mod, True)
+        self._organizer.modList().setActive(merge_mod, True)
 
     def scan_thread_worker_progress(
         self, progress
@@ -592,9 +591,7 @@ class MergeThreadWorker(QRunnable):
                     ),
                 )
         # compress
-        arc_fullpath = os.path.normpath(
-            mod_directory + os.sep + merge_mod + os.sep + self.arc_folder_path
-        )
+        arc_fullpath = os.path.join(mod_directory, merge_mod, self.arc_folder_path)
         command = f'"{executable}" {compress_args} "{arc_fullpath}"'
         output = os.popen(command).read()
         if bool(
@@ -604,14 +601,8 @@ class MergeThreadWorker(QRunnable):
             log_out += output + "------ end output ------\n"
         # remove folders and txt
         log_out += "Removing temp files\n"
-        shutil.rmtree(
-            os.path.normpath(
-                mod_directory + os.sep + merge_mod + os.sep + self.arc_folder_path
-            )
-        )
-        pathlib.Path(
-            os.path.join(mod_directory, merge_mod, self.arc_folder_path + ".arc.txt")
-        ).unlink(missing_ok=True)
+        shutil.rmtree(arc_fullpath)
+        pathlib.Path(arc_fullpath + ".arc.txt").unlink(missing_ok=True)
         # finished
         log_out += "ARC merge complete"
         self.signals.result.emit(log_out)  # Return logs
