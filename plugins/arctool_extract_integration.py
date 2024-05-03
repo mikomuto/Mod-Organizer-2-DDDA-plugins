@@ -87,7 +87,6 @@ class ARCExtract(mobase.IPluginTool):
     def settings(self):
         return [
             mobase.PluginSetting("enabled", "enable this plugin", True),
-            mobase.PluginSetting("ARCtool-path", self.__tr("Path to ARCtool.exe"), ""),
             mobase.PluginSetting(
                 "initialised",
                 self.__tr(
@@ -135,20 +134,10 @@ class ARCExtract(mobase.IPluginTool):
         return self.__tr("ARC Extract")
 
     def tooltip(self):
-        return self.__tr("Unpacks all ARC files")
+        return self.__tr("Unpacks ARC files")
 
     def icon(self):
-        arc_tool_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
-        if os.path.exists(arc_tool_path):
-            # We can't directly grab the icon from an executable,
-            # but this seems like the simplest alternative.
-            fin = QFileInfo(arc_tool_path)
-            model = QFileSystemModel()
-            model.setRootPath(fin.path())
-            return model.fileIcon(model.index(fin.filePath()))
-        else:
-            # Fall back to where the user might have put an icon manually.
-            return QIcon("plugins/ARCtool.ico")
+        return QIcon("")
 
     def setParentWidget(self, widget):
         self.__parent_widget = widget
@@ -157,7 +146,6 @@ class ARCExtract(mobase.IPluginTool):
         # reset settings if needed
         if not bool(self._organizer.pluginSetting(self.name(), "initialised")):
             # reset all
-            self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
             self._organizer.setPluginSetting(self.name(), "remove-ITM", True)
             self._organizer.setPluginSetting(self.name(), "delete-ARC", True)
             self._organizer.setPluginSetting(self.name(), "log-enabled", False)
@@ -169,7 +157,7 @@ class ARCExtract(mobase.IPluginTool):
             self._organizer.setPluginSetting(self.name(), "merge-mode", False)
         # verify that ARCtool path is still valid
         try:
-            executable = self.get_arctool_path()
+            executable = self.get_arctool()
         except ARCtoolInvalidPathException:
             QMessageBox.critical(
                 self.__parent_widget,
@@ -183,13 +171,12 @@ class ARCExtract(mobase.IPluginTool):
             QMessageBox.critical(
                 self.__parent_widget,
                 self.__tr("ARCtool not found"),
-                self.__tr("ARCtool.exe not found. Resetting tool."),
+                self.__tr("ARCtool.exe not found. Exiting tool."),
             )
             return
         # logger setup
         if self._organizer.pluginSetting(self.name(), "log-enabled"):
-            arctool_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
-            log_file = os.path.dirname(arctool_path) + "\\ARCExtract.log"
+            log_file = self._organizer.overwritePath() + "\\ARCExtract.log"
             self.logger = logging.getLogger("ae_logger")
             f_handler = logging.FileHandler(log_file, "w+")
             f_handler.setLevel(logging.DEBUG)
@@ -242,48 +229,55 @@ class ARCExtract(mobase.IPluginTool):
         retval = msg.exec()
         return retval
 
-    def get_arctool_path(self):
-        saved_path = self._organizer.pluginSetting(self.name(), "ARCtool-path")
-        mod_directory = self._organizer.modsPath()
-        arctool_md5sum = 'a67c938dd85f9161da47b8b851dd8a8e'
-        if not os.path.isfile(saved_path):
-            # scan mod directory for ARCtool.exe
-            modlist = self._organizer.modList()
-            for mod_name in modlist.allMods():
-                arctool_path_check = os.path.join(
-                    mod_directory, mod_name, "ARCtool.exe"
-                )
-                if os.path.isfile(arctool_path_check):
-                    file_hash = hashlib.md5()
-                    with open(arctool_path_check, "rb") as f:
-                        while chunk := f.read(8192):
-                            file_hash.update(chunk)
-                    if file_hash.hexdigest() == arctool_md5sum:
-                        self._organizer.setPluginSetting(self.name(), "ARCtool-path", arctool_path_check)
-                        return os.path.normpath(arctool_path_check)
-                    else:
-                        QMessageBox.critical(self.__parent_widget,self.__tr("ARCtool error"),self.__tr("Invalid md5sum found for: ") + arctool_path_check + "\nTool will continue to check for a valid ARCtool.exe\n" + arctool_md5sum + " Expected\n" + file_hash.hexdigest() + " Found" )
-            # failed to find set arctool path. reset and alert
-            self._organizer.setPluginSetting(self.name(), "ARCtool-path", "")
-            self._organizer.setPluginSetting(self.name(), "initialised", False)
+    def get_arctool(self):
+        arctool_path = os.path.join(self._organizer.basePath(), "ARCtool.exe")
+        arctool_md5sum = "a67c938dd85f9161da47b8b851dd8a8e"
+        if not os.path.isfile(arctool_path):
+            while True:
+                path = QFileDialog.getOpenFileName(
+                    self.__parent_widget,
+                    self.__tr("Locate ARCTool.exe"),
+                    str(arctool_path),
+                    "ARCTool.exe",
+                )[0]
+                if path == "":
+                    # Cancel was pressed
+                    raise ARCtoolInvalidPathException
+                else:
+                    shutil.copy(path, arctool_path)
+                    break
             raise ARCtoolMissingException
-        return os.path.normpath(saved_path)
+        file_hash = hashlib.md5()
+        with open(arctool_path, "rb") as f:
+            while chunk := f.read(8192):
+                file_hash.update(chunk)
+        if file_hash.hexdigest() == arctool_md5sum:
+            return os.path.normpath(arctool_path)
+        else:
+            QMessageBox.critical(
+                self.__parent_widget,
+                self.__tr("ARCtool error"),
+                self.__tr(
+                    "Invalid md5sum: \n"
+                    + arctool_md5sum
+                    + " Expected\n"
+                    + file_hash.hexdigest()
+                    + " Found"
+                ),
+            )
+        # failed to find set arctool path
+        raise ARCtoolMissingException
 
     def process_mods(self, executable):  # called from display()
         self.arc_files_seen_dict.clear()
         self.arc_files_duplicate_dict.clear()
-        mod_directory = self._organizer.modsPath()
-        executable_path_name = executable.split(os.sep)
-        arctool_mod = os.path.relpath(executable_path_name[0], mod_directory).split(
-            os.path.sep, 1
-        )[0]
 
         # get mod active list
         mod_active_list = []
         modlist = self._organizer.modList()
         for mod_name in modlist.allModsByProfilePriority():
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
-                if mod_name != arctool_mod and "Merged ARC" not in mod_name:
+                if "Merged ARC" not in mod_name:
                     mod_active_list.append(mod_name)
 
         # initialise progress dialog
@@ -329,7 +323,10 @@ class ARCExtract(mobase.IPluginTool):
             )
             self.logger.debug("Unique ARC count: %s", len(self.arc_files_seen_dict))
         # start extraction
-        self.extract_duplicate_arcs()
+        if len(self.arc_files_duplicate_dict) > 0:
+            self.extract_duplicate_arcs()
+        else:
+            self.announce_finish()
 
     def scan_thread_worker_output(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
@@ -357,12 +354,7 @@ class ARCExtract(mobase.IPluginTool):
         self,
     ):  # called after completion of all ExtractThreadWorker()
         organizer = self._organizer
-        executable = organizer.pluginSetting(self.name(), "ARCtool-path")
         mod_directory = organizer.modsPath()
-        executable_path, executable_name = os.path.split(executable)
-        arctool_mod = os.path.relpath(executable_path, mod_directory).split(
-            os.path.sep, 1
-        )[0]
         # get mod active list
         mod_active_list = []
         modlist = organizer.modList()
@@ -370,7 +362,7 @@ class ARCExtract(mobase.IPluginTool):
             self.logger.debug("Starting cleanup")
         for mod_name in modlist.allModsByProfilePriority():
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
-                if mod_name != arctool_mod and "Merged ARC" not in mod_name:
+                if "Merged ARC" not in mod_name:
                     mod_active_list.append(mod_name)
         for mod_name in mod_active_list:
             for dirpath, dirnames, filenames in os.walk(
@@ -379,9 +371,7 @@ class ARCExtract(mobase.IPluginTool):
                 for dirname in dirnames:
                     full_path = os.path.join(dirpath, dirname)
                     if not os.listdir(full_path):
-                        if bool(
-                            organizer.pluginSetting(self.name(), "verbose-log")
-                        ):
+                        if bool(organizer.pluginSetting(self.name(), "verbose-log")):
                             self.logger.debug("Deleting %s", full_path)
                         os.rmdir(full_path)
                         pathlib.Path(f"{full_path}.arc.txt").unlink(missing_ok=True)
@@ -441,6 +431,41 @@ class ScanThreadWorker(QRunnable):
             if ARCExtract.threadCancel:
                 return
             log_out += f"Scanning: {mod_name}\n"
+            # if merge mode, compare game directory files and remove duplicates here
+            if bool(self._organizer.pluginSetting("ARC Extract", "merge-mode")):
+                log_out += "Merge mod creation enabled\n"
+
+                def list_identical_files(dcmp):
+                    filelist = []
+                    for name in dcmp.same_files:
+                        filelist.append(os.path.join(dcmp.right, name))
+                    for sub_dcmp in dcmp.subdirs.values():
+                        for name in list_identical_files(sub_dcmp):
+                            filelist.append(name)
+                    return filelist
+
+                dcmp = filecmp.dircmp(
+                    game_directory,
+                    os.path.join(mod_directory, mod_name),
+                )
+                files_to_delete = list_identical_files(dcmp)
+                if bool(
+                    self._organizer.pluginSetting(
+                        ARCExtract.name(ARCExtract), "verbose-log"
+                    )
+                ):
+                    log_out += "------ deleting files matching game folder ------\n"
+                    for name in files_to_delete:
+                        log_out += f'Removing "{name}"\n'
+                    log_out += "------ end output ------\n"
+                if bool(
+                    self._organizer.pluginSetting(
+                        ARCExtract.name(ARCExtract), "log-enabled"
+                    )
+                ):
+                    log_out += f"Removed {len(files_to_delete)} identical to game folder files\n"
+                for name in files_to_delete:
+                    os.remove(name)
             for dirpath, dirnames, filenames in os.walk(
                 os.path.join(mod_directory, mod_name)
             ):
@@ -565,31 +590,29 @@ class ExtractThreadWorker(QRunnable):
         if ARCExtract.threadCancel:
             return
         args = "-x -pc -dd -alwayscomp -txt -v 7"
-        executable = self._organizer.pluginSetting(
-            ARCExtract.name(ARCExtract), "ARCtool-path"
-        )
-        executable_path, executable_name = os.path.split(executable)
+        executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         arc_file_parent_relpath = os.path.dirname(self._arc_file)
-        arc_file_fullpath = os.path.join(executable_path, self._arc_file)
         extracted_arc_folder_relpath = os.path.splitext(self._arc_file)[0]
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
         mod_directory = self._organizer.modsPath()
+        merge_mod = "Merged ARC - " + self._organizer.profileName()
+        arc_file_fullpath = os.path.join(mod_directory, merge_mod, self._arc_file)
         log_out = "\n"
         # extract vanilla if needed
         extracted_arc_folder_fullpath = os.path.join(
-            executable_path, extracted_arc_folder_relpath
+            mod_directory, merge_mod, extracted_arc_folder_relpath
         )
         if not os.path.isdir(extracted_arc_folder_fullpath):
             log_out += f"Extracting vanilla ARC: {self._arc_file}\n"
             if os.path.isfile(os.path.join(game_directory, self._arc_file)):
-                pathlib.Path(f"{executable_path}\{arc_file_parent_relpath}").mkdir(
+                pathlib.Path(extracted_arc_folder_fullpath).mkdir(
                     parents=True, exist_ok=True
                 )
                 shutil.copy(
                     os.path.join(game_directory, self._arc_file),
-                    os.path.join(executable_path, arc_file_parent_relpath),
+                    os.path.join(mod_directory, merge_mod, arc_file_parent_relpath),
                 )
-                command = f'"{executable}" {args} "{arc_fullpath}"'
+                command = f'"{executable}" {args} "{arc_file_fullpath}"'
                 command_out = os.popen(command).read()
                 if bool(
                     self._organizer.pluginSetting(
@@ -608,7 +631,7 @@ class ExtractThreadWorker(QRunnable):
             arc_fullpath = os.path.join(mod_directory, mod_name, self._arc_file)
             if os.path.isfile(arc_fullpath):
                 log_out += f"Extracting: {mod_name} {self._arc_file}\n"
-                # extract arc and remove ITM
+                # extract arc
                 command = f'"{executable}" {args} "{arc_fullpath}"'
                 if bool(
                     self._organizer.pluginSetting(
@@ -628,19 +651,45 @@ class ExtractThreadWorker(QRunnable):
                 if bool(self._organizer.pluginSetting("ARC Extract", "remove-ITM")):
                     log_out += "Removing ITM\n"
 
-                    def delete_same_files(dcmp):
+                    def list_identical_files(dcmp):
+                        filelist = []
                         for name in dcmp.same_files:
-                            os.remove(os.path.join(dcmp.right, name))
+                            filelist.append(os.path.join(dcmp.right, name))
                         for sub_dcmp in dcmp.subdirs.values():
-                            delete_same_files(sub_dcmp)
+                            for name in list_identical_files(sub_dcmp):
+                                filelist.append(name)
+                        return filelist
 
+                    # compare mod folder to extracted vanilla arc folder
                     dcmp = filecmp.dircmp(
-                        os.path.join(executable_path, extracted_arc_folder_relpath),
+                        os.path.join(
+                            mod_directory,
+                            merge_mod,
+                            extracted_arc_folder_relpath,
+                        ),
                         os.path.join(
                             mod_directory, mod_name, extracted_arc_folder_relpath
                         ),
                     )
-                    delete_same_files(dcmp)
+                    files_to_delete = list_identical_files(dcmp)
+                    if bool(
+                        self._organizer.pluginSetting(
+                            ARCExtract.name(ARCExtract), "verbose-log"
+                        )
+                    ):
+                        log_out += "------ deleting files matching vanilla extracted arc folder ------\n"
+                        for name in files_to_delete:
+                            log_out += f'Removing "{name}"\n'
+                        log_out += "------ end output ------\n"
+                    if bool(
+                        self._organizer.pluginSetting(
+                            ARCExtract.name(ARCExtract), "log-enabled"
+                        )
+                    ):
+                        log_out += f"Removed {len(files_to_delete)} identical files\n"
+                    for name in files_to_delete:
+                        os.remove(name)
+
                     # delete empty folders
                     for dirpath, dirnames, filenames in os.walk(
                         os.path.join(
