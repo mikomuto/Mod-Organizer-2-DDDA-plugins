@@ -33,11 +33,6 @@ class ARCtoolInvalidPathException(Exception):
 class ARCtoolMissingException(Exception):
     """Thrown if selected ARC file can't be found"""
 
-
-class ARCFileMissingException(Exception):
-    """Thrown if selected ARC file can't be found"""
-
-
 class ARCMerge(mobase.IPluginTool):
     arc_folders_previous_build_dict = defaultdict(list)
     arc_folders_current_build_dict = defaultdict(list)
@@ -67,19 +62,13 @@ class ARCMerge(mobase.IPluginTool):
         return "MikoMuto"
 
     def description(self):
-        return self.__tr(
-            "Runs ARCtool on mods to merge extracted .arc folders from mods"
-        )
+        return self.__tr("Runs ARCtool on mods to merge extracted .arc folders from mods")
 
     def version(self):
-        return mobase.VersionInfo(2, 0, 0, 0)
+        return mobase.VersionInfo(2, 0, 1, 0)
 
     def requirements(self):
-        return [
-            mobase.PluginRequirementFactory.gameDependency(
-                "Dragon's Dogma: Dark Arisen"
-            )
-        ]
+        return [mobase.PluginRequirementFactory.gameDependency("Dragon's Dogma: Dark Arisen")]
 
     def isActive(self) -> bool:
         return self._organizer.pluginSetting(self.main_tool_name(), "enabled")
@@ -109,11 +98,8 @@ class ARCMerge(mobase.IPluginTool):
         except ARCtoolInvalidPathException:
             QMessageBox.critical(
                 self.__parent_widget,
-                self.__tr("ARCtool path not specified"),
-                self.__tr(
-                    "The path to ARCtool.exe wasn't specified. The tool will now exit."
-                ),
-            )
+                self.__tr("Incorrect ARCtool path"),
+                self.__tr("Invalid path for ARCtool.exe. The tool will now exit."),)
             return
         except ARCtoolMissingException:
             QMessageBox.critical(
@@ -122,21 +108,7 @@ class ARCMerge(mobase.IPluginTool):
                 self.__tr("ARCtool.exe not found. Exiting tool."),
             )
             return
-        if not os.path.isfile(executable) or not initialized:
-            # reset
-            self._organizer.setPluginSetting(
-                self.main_tool_name(), "initialised", False
-            )
-            QMessageBox.critical(
-                self.__parent_widget,
-                self.__tr(""),
-                self.__tr(
-                    "ARCtool.exe not found or tool has been"
-                    + " reset. Run ARC Extract to finish setup."
-                ),
-            )
-            return
-
+        
         # logger setup
         if self._organizer.pluginSetting(self.main_tool_name(), "log-enabled"):
             log_file = self._organizer.overwritePath() + "\\ARCMerge.log"
@@ -172,42 +144,8 @@ class ARCMerge(mobase.IPluginTool):
 
     def get_arctool(self):
         arctool_path = os.path.join(self._organizer.basePath(), "ARCtool.exe")
-        arctool_md5sum = "a67c938dd85f9161da47b8b851dd8a8e"
         if not os.path.isfile(arctool_path):
-            while True:
-                path = QFileDialog.getOpenFileName(
-                    self.__parent_widget,
-                    self.__tr("Locate ARCTool.exe"),
-                    str(arctool_path),
-                    "ARCTool.exe",
-                )[0]
-                if path == "":
-                    # Cancel was pressed
-                    raise ARCtoolInvalidPathException
-                else:
-                    shutil.copy(path, arctool_path)
-                    break
             raise ARCtoolMissingException
-        file_hash = hashlib.md5()
-        with open(arctool_path, "rb") as f:
-            while chunk := f.read(8192):
-                file_hash.update(chunk)
-        if file_hash.hexdigest() == arctool_md5sum:
-            return os.path.normpath(arctool_path)
-        else:
-            QMessageBox.critical(
-                self.__parent_widget,
-                self.__tr("ARCtool error"),
-                self.__tr(
-                    "Invalid md5sum: \n"
-                    + arctool_md5sum
-                    + " Expected\n"
-                    + file_hash.hexdigest()
-                    + " Found"
-                ),
-            )
-        # failed to find set arctool path
-        raise ARCtoolMissingException
 
     def __tr(self, txt: str) -> str:
         return QApplication.translate("ARCMerge", txt)
@@ -216,9 +154,7 @@ class ARCMerge(mobase.IPluginTool):
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setText(f"Mod {mod_name} is disabled. Do you wish to enable it?")
-        msg.setInformativeText(
-            "Disabled mods will not be included in the merge process."
-        )
+        msg.setInformativeText("Disabled mods will not be included in the merge process.")
         msg.setStandardButtons(
             QMessageBox.StandardButton.YesToAll
             | QMessageBox.StandardButton.Yes
@@ -242,16 +178,12 @@ class ARCMerge(mobase.IPluginTool):
                 if "Merged ARC" not in mod_name:
                     active_mod_list.append(mod_name)
         # set mod count for progress
-        self.merge_progress_dialog = QProgressDialog(
-            self.__tr("Scanning..."), self.__tr("Cancel"), 0, 0, self.__parent_widget
-        )
+        self.merge_progress_dialog = QProgressDialog(self.__tr("Scanning..."), self.__tr("Cancel"), 0, 0, self.__parent_widget)
         self.merge_progress_dialog.setFixedWidth(300)
         self.merge_progress_dialog.setMaximum(len(active_mod_list))
         self.merge_progress_dialog.forceShow()
         # set max thread count
-        self.threadpool.setMaxThreadCount(
-            self._organizer.pluginSetting(self.main_tool_name(), "max-threads")
-        )
+        self.threadpool.setMaxThreadCount(self._organizer.pluginSetting(self.main_tool_name(), "max-threads"))
         # start single scan thread
         worker = ScanThreadWorker(self._organizer, active_mod_list)
         worker.signals.progress.connect(self.scan_thread_worker_progress)
@@ -264,15 +196,9 @@ class ARCMerge(mobase.IPluginTool):
         merge_needed_count = 0
         # process changed merges from dictionary
         for entry in self.arc_folders_current_build_dict:
-            if (
-                entry not in self.arc_folders_previous_build_dict
-                or self.arc_folders_current_build_dict[entry]
-                != self.arc_folders_previous_build_dict[entry]
-            ):
+            if (entry not in self.arc_folders_previous_build_dict or self.arc_folders_current_build_dict[entry] != self.arc_folders_previous_build_dict[entry]):
                 # Pass the function to execute
-                worker = MergeThreadWorker(
-                    self._organizer, self.arc_folders_current_build_dict[entry], entry
-                )
+                worker = MergeThreadWorker(self._organizer, self.arc_folders_current_build_dict[entry], entry)
                 worker.signals.result.connect(self.merge_thread_worker_output)
                 worker.signals.finished.connect(self.merge_thread_worker_complete)
                 # Execute
@@ -299,32 +225,22 @@ class ARCMerge(mobase.IPluginTool):
         # remove stale .arc files from merged folder
         for entry in self.arc_folders_previous_build_dict:
             if self.merge_progress_dialog.wasCanceled():
-                if bool(
-                    self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")
-                ):
+                if bool(self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")):
                     self.logger.debug("Merge cancelled")
                 return
             if entry not in self.arc_folders_current_build_dict:
-                if bool(
-                    self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")
-                ):
+                if bool(self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")):
                     self.logger.debug("Deleting stale arc: %s", entry)
-                    # Pass the function to execute
-                    worker = CleanupThreadWorker(self._organizer, entry)
-                    # Execute
-                    self.threadpool.start(worker)
+                # Pass the function to execute
+                worker = CleanupThreadWorker(self._organizer, entry)
+                # Execute
+                self.threadpool.start(worker)
         # write arc merge info to json
         try:
-            with open(
-                os.path.join(mod_directory, merge_mod, "arcFileMerge.json"),
-                "w",
-                encoding="utf-8",
-            ) as file_handle:
+            with open(os.path.join(mod_directory, merge_mod, "arcFileMerge.json"), "w", encoding="utf-8",) as file_handle:
                 json.dump(self.arc_folders_current_build_dict, file_handle)
         except IOError:
-            if bool(
-                self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")
-            ):
+            if bool(self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")):
                 self.logger.debug("arcFileMerge.json not found or invalid")
 
         if self._organizer.pluginSetting(self.main_tool_name(), "uncheck-mods"):
@@ -355,12 +271,8 @@ class ARCMerge(mobase.IPluginTool):
     ):  # called after completion of ScanThreadWorker()
         if bool(self._organizer.pluginSetting(self.main_tool_name(), "log-enabled")):
             self.logger.debug("Scan complete")
-            self.logger.debug(
-                "Previous count: %d", len(self.arc_folders_previous_build_dict)
-            )
-            self.logger.debug(
-                "Current count: %s", len(self.arc_folders_current_build_dict)
-            )
+            self.logger.debug("Previous count: %d", len(self.arc_folders_previous_build_dict))
+            self.logger.debug("Current count: %s", len(self.arc_folders_current_build_dict))
         # start merge
         self.merge_arc_files()
 
@@ -422,28 +334,15 @@ class ScanThreadWorker(QRunnable):
         )
 
         # create merge folder if not exist
-        pathlib.Path(
-            os.path.join(
-                mod_directory,
-                merge_mod,
-            )
-        ).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(os.path.join(mod_directory, merge_mod, )).mkdir(parents=True, exist_ok=True)
 
         # load previous arc merge info
         if os.path.isfile(previous_merge_file):
             try:
-                with open(
-                    previous_merge_file,
-                    "r",
-                    encoding="utf-8",
-                ) as file_handle:
+                with open(previous_merge_file, "r", encoding="utf-8", ) as file_handle:
                     ARCMerge.arc_folders_previous_build_dict = json.load(file_handle)
             except IOError:
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCMerge.main_tool_name(), "log-enabled"
-                    )
-                ):
+                if bool(self._organizer.pluginSetting(ARCMerge.main_tool_name(), "log-enabled")):
                     log_out += "arcFileMerge.json not found or invalid"
 
         mods_scanned = 0
@@ -457,41 +356,18 @@ class ScanThreadWorker(QRunnable):
             log_out += f"Scanning: {mod_name}\n"
             if modlist.state(mod_name) & mobase.ModState.ACTIVE:
                 if "Merged ARC" not in mod_name:
-                    for dirpath, dirnames, filenames in os.walk(
-                        mod_directory + os.path.sep + mod_name
-                    ):
+                    for dirpath, dirnames, filenames in os.walk(mod_directory + os.path.sep + mod_name):
                         # check for extracted arc folders
                         for folder in dirnames:
                             arc_folder = dirpath + os.path.sep + folder
-                            relative_path = os.path.relpath(
-                                arc_folder, mod_directory
-                            ).split(os.path.sep, 1)[1]
+                            relative_path = os.path.relpath(arc_folder, mod_directory).split(os.path.sep, 1)[1]
                             # check for matching game file or arc.txt
                             #  (fix for gog to steam merge)
-                            if os.path.isfile(
-                                os.path.join(game_directory, relative_path + ".arc")
-                            ) or os.path.isfile(
-                                os.path.join(
-                                    mod_directory,
-                                    mod_name,
-                                    relative_path + ".arc.txt",
-                                )
-                            ):
-                                if bool(
-                                    self._organizer.pluginSetting(
-                                        ARCMerge.main_tool_name(), "verbose-log"
-                                    )
-                                ):
+                            if os.path.isfile(os.path.join(game_directory, relative_path + ".arc")) or os.path.isfile(os.path.join(mod_directory, mod_name, relative_path + ".arc.txt", )):
+                                if bool(self._organizer.pluginSetting(ARCMerge.main_tool_name(), "verbose-log")):
                                     log_out += f"ARC Folder: {relative_path}\n"
-                                if (
-                                    mod_name
-                                    not in ARCMerge.arc_folders_current_build_dict[
-                                        relative_path
-                                    ]
-                                ):
-                                    ARCMerge.arc_folders_current_build_dict[
-                                        relative_path
-                                    ].append(mod_name)
+                                if (mod_name not in ARCMerge.arc_folders_current_build_dict[relative_path]):
+                                    ARCMerge.arc_folders_current_build_dict[relative_path].append(mod_name)
 
         self.signals.result.emit(log_out)  # Return log
         self.signals.finished.emit()  # Done
@@ -509,12 +385,8 @@ class CleanupThreadWorker(QRunnable):
         mod_directory = self._organizer.modsPath()
         merge_mod = "Merged ARC - " + self._organizer.profileName()
         # clean merge
-        pathlib.Path(
-            os.path.join(mod_directory, merge_mod, self.entry + ".arc.txt")
-        ).unlink(missing_ok=True)
-        pathlib.Path(
-            os.path.join(mod_directory, merge_mod, self.entry + ".arc")
-        ).unlink(missing_ok=True)
+        pathlib.Path(os.path.join(mod_directory, merge_mod, self.entry + ".arc.txt")).unlink(missing_ok=True)
+        pathlib.Path(os.path.join(mod_directory, merge_mod, self.entry + ".arc")).unlink(missing_ok=True)
         if os.path.exists(os.path.join(mod_directory, merge_mod, self.entry)):
             shutil.rmtree(os.path.join(mod_directory, merge_mod, self.entry))
         return
@@ -547,66 +419,34 @@ class MergeThreadWorker(QRunnable):
         arc_folder_parent = os.path.dirname(self.arc_folder_path)
         merge_mod = "Merged ARC - " + self._organizer.profileName()
         # copy vanilla arc to merge folder, extract, then delete if not already done
-        extracted_arc_folder = os.path.join(
-            mod_directory, merge_mod, self.arc_folder_path
-        )
+        extracted_arc_folder = os.path.join(mod_directory, merge_mod, self.arc_folder_path)
         if not os.path.isdir(extracted_arc_folder):
             log_out += f'Extracting vanilla ARC: {self.arc_folder_path + ".arc"}\n'
-            if os.path.isfile(
-                os.path.join(game_directory, self.arc_folder_path + ".arc")
-            ):
-                pathlib.Path(
-                    os.path.join(mod_directory, merge_mod, arc_folder_parent, "")
-                ).mkdir(parents=True, exist_ok=True)
-                shutil.copy(
-                    os.path.join(game_directory, self.arc_folder_path + ".arc"),
-                    os.path.join(mod_directory, merge_mod, arc_folder_parent, ""),
-                )
+            if os.path.isfile(os.path.join(game_directory, self.arc_folder_path + ".arc")):
+                pathlib.Path(os.path.join(mod_directory, merge_mod, arc_folder_parent, "")).mkdir(parents=True, exist_ok=True)
+                shutil.copy(os.path.join(game_directory, self.arc_folder_path + ".arc"), os.path.join(mod_directory, merge_mod, arc_folder_parent, ""), )
                 arc_fullpath = extracted_arc_folder + ".arc"
                 command = f'"{executable}" {extract_args} "{arc_fullpath}"'
                 output = os.popen(command).read()
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCMerge.main_tool_name(), "verbose-log"
-                    )
-                ):
+                if bool(self._organizer.pluginSetting(ARCMerge.main_tool_name(), "verbose-log")):
                     log_out += "\n------ start arctool vanilla extract output ------\n"
                     log_out += output + "------ end output ------\n"
                 # remove .arc file
-                os.remove(
-                    os.path.join(
-                        mod_directory, merge_mod, self.arc_folder_path + ".arc"
-                    )
-                )
+                os.remove(os.path.join(mod_directory, merge_mod, self.arc_folder_path + ".arc"))
         # copy mod files to merge folder
         for mod_name in self.mods_to_merge:
-            child_mod_arc_path = os.path.join(
-                mod_directory, mod_name, self.arc_folder_path
-            )
+            child_mod_arc_path = os.path.join(mod_directory, mod_name, self.arc_folder_path)
             if pathlib.Path(child_mod_arc_path).exists():
                 log_out += f"Merging mod: {mod_name}\n"
-                shutil.copytree(
-                    child_mod_arc_path,
-                    os.path.join(mod_directory, merge_mod, self.arc_folder_path, ""),
-                    dirs_exist_ok=True,
-                )
+                shutil.copytree(child_mod_arc_path, os.path.join(mod_directory, merge_mod, self.arc_folder_path, ""), dirs_exist_ok=True, )
             if os.path.isfile(child_mod_arc_path + ".arc.txt"):
                 log_out += f"Copying {mod_name} {self.arc_folder_path}.arc.txt\n"
-                shutil.copy(
-                    child_mod_arc_path + ".arc.txt",
-                    os.path.join(
-                        mod_directory,
-                        merge_mod,
-                        arc_folder_parent,
-                    ),
-                )
+                shutil.copy(child_mod_arc_path + ".arc.txt", os.path.join(mod_directory, merge_mod, arc_folder_parent, ), )
         # compress
         arc_fullpath = os.path.join(mod_directory, merge_mod, self.arc_folder_path)
         command = f'"{executable}" {compress_args} "{arc_fullpath}"'
         output = os.popen(command).read()
-        if bool(
-            self._organizer.pluginSetting(ARCMerge.main_tool_name(), "verbose-log")
-        ):
+        if bool(self._organizer.pluginSetting(ARCMerge.main_tool_name(), "verbose-log")):
             log_out += "------ start arctool merge output ------\n"
             log_out += output + "------ end output ------\n"
         # remove folders and txt

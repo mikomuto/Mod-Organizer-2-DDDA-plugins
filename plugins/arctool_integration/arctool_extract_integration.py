@@ -75,7 +75,7 @@ class ARCExtract(mobase.IPluginTool):
         return self.__tr("Runs ARCtool on mods to extract files")
 
     def version(self):
-        return mobase.VersionInfo(2, 0, 0, 0)
+        return mobase.VersionInfo(2, 0, 1, 0)
 
     def requirements(self):
         return [
@@ -91,9 +91,9 @@ class ARCExtract(mobase.IPluginTool):
         return [
             mobase.PluginSetting("enabled", "enable this plugin", True),
             mobase.PluginSetting(
-                "initialised",
+                "restore default",
                 self.__tr(
-                    "Settings have been initialised. Set to False to reinitialise them."
+                    "Set to True to restore default settings."
                 ),
                 False,
             ),
@@ -147,7 +147,7 @@ class ARCExtract(mobase.IPluginTool):
 
     def display(self):
         # reset settings if needed
-        if not bool(self._organizer.pluginSetting(self.name(), "initialised")):
+        if bool(self._organizer.pluginSetting(self.name(), "restore default")):
             # reset all
             self._organizer.setPluginSetting(self.name(), "remove-ITM", True)
             self._organizer.setPluginSetting(self.name(), "delete-ARC", True)
@@ -164,11 +164,8 @@ class ARCExtract(mobase.IPluginTool):
         except ARCtoolInvalidPathException:
             QMessageBox.critical(
                 self.__parent_widget,
-                self.__tr("ARCtool path not specified"),
-                self.__tr(
-                    "The path to ARCtool.exe wasn't specified. The tool will now exit."
-                ),
-            )
+                self.__tr("Incorrect ARCtool path"),
+                self.__tr("Invalid path for ARCtool.exe. The tool will now exit."),)
             return
         except ARCtoolMissingException:
             QMessageBox.critical(
@@ -189,7 +186,7 @@ class ARCExtract(mobase.IPluginTool):
             self.logger.propagate = False
         # reset cancelled flag
         ARCExtract.threadCancel = False
-        self._organizer.setPluginSetting(self.name(), "initialised", True)
+        self._organizer.setPluginSetting(self.name(), "restore default", False)
         # check for inactive mods
         if self._organizer.pluginSetting(self.name(), "uncheck-mods"):
             modlist = self._organizer.modList()
@@ -234,42 +231,8 @@ class ARCExtract(mobase.IPluginTool):
 
     def get_arctool(self):
         arctool_path = os.path.join(self._organizer.basePath(), "ARCtool.exe")
-        arctool_md5sum = "a67c938dd85f9161da47b8b851dd8a8e"
         if not os.path.isfile(arctool_path):
-            while True:
-                path = QFileDialog.getOpenFileName(
-                    self.__parent_widget,
-                    self.__tr("Locate ARCTool.exe"),
-                    str(arctool_path),
-                    "ARCTool.exe",
-                )[0]
-                if path == "":
-                    # Cancel was pressed
-                    raise ARCtoolInvalidPathException
-                else:
-                    shutil.copy(path, arctool_path)
-                    break
             raise ARCtoolMissingException
-        file_hash = hashlib.md5()
-        with open(arctool_path, "rb") as f:
-            while chunk := f.read(8192):
-                file_hash.update(chunk)
-        if file_hash.hexdigest() == arctool_md5sum:
-            return os.path.normpath(arctool_path)
-        else:
-            QMessageBox.critical(
-                self.__parent_widget,
-                self.__tr("ARCtool error"),
-                self.__tr(
-                    "Invalid md5sum: \n"
-                    + arctool_md5sum
-                    + " Expected\n"
-                    + file_hash.hexdigest()
-                    + " Found"
-                ),
-            )
-        # failed to find set arctool path
-        raise ARCtoolMissingException
 
     def process_mods(self, executable):  # called from display()
         self.arc_files_seen_dict.clear()
@@ -472,164 +435,65 @@ class ScanThreadWorker(QRunnable):
                             filelist.append(name)
                     return filelist
 
-                dcmp = filecmp.dircmp(
-                    game_directory,
-                    os.path.join(mod_directory, mod_name),
-                )
+                dcmp = filecmp.dircmp(game_directory, os.path.join(mod_directory, mod_name),)
                 files_to_delete = list_identical_files(dcmp)
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "verbose-log"
-                    )
-                ):
+                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                     log_out += "------ deleting files matching game folder ------\n"
                     for name in files_to_delete:
                         log_out += f'Removing "{name}"\n'
                     log_out += "------ end output ------\n"
                 if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "log-enabled"
-                    )
-                ):
+                    self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "log-enabled")):
                     log_out += f"Removed {len(files_to_delete)} identical to game folder files\n"
                 for name in files_to_delete:
                     os.remove(name)
-            for dirpath, dirnames, filenames in os.walk(
-                os.path.join(mod_directory, mod_name)
-            ):
+            for dirpath, dirnames, filenames in os.walk(os.path.join(mod_directory, mod_name)):
                 # check for extracted arc folders
                 for folder in dirnames:
                     full_path = os.path.join(dirpath, folder + ".arc")
-                    relative_path = os.path.relpath(full_path, mod_directory).split(
-                        os.path.sep, 1
-                    )[1]
-                    if os.path.isfile(
-                        os.path.normpath(game_directory + os.path.sep + relative_path)
-                    ):
-                        if bool(
-                            self._organizer.pluginSetting(
-                                ARCExtract.name(ARCExtract), "verbose-log"
-                            )
-                        ):
+                    relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
+                    if os.path.isfile(os.path.normpath(game_directory + os.path.sep + relative_path)):
+                        if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                             log_out += f"ARC Folder: {full_path}\n"
-                        if bool(
-                            self._organizer.pluginSetting(
-                                ARCExtract.name(ARCExtract), "merge-mode"
-                            )
-                        ):
-                            ARCExtract.arc_files_seen_dict[relative_path].append(
-                                mod_name
-                            )
-                        if any(
-                            relative_path in x for x in ARCExtract.arc_files_seen_dict
-                        ):
-                            mod_where_first_seen = ARCExtract.arc_files_seen_dict[
-                                relative_path
-                            ][0]
-                            ARCExtract.arc_files_duplicate_dict[relative_path].append(
-                                mod_where_first_seen
-                            )
-                            if (
-                                mod_name
-                                not in ARCExtract.arc_files_duplicate_dict[
-                                    relative_path
-                                ]
-                            ):
-                                ARCExtract.arc_files_duplicate_dict[
-                                    relative_path
-                                ].append(mod_name)
+                        if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
+                            ARCExtract.arc_files_seen_dict[relative_path].append(mod_name)
+                        if (relative_path in ARCExtract.arc_files_seen_dict):
+                            mod_where_first_seen = ARCExtract.arc_files_seen_dict[relative_path][0]
+                            ARCExtract.arc_files_duplicate_dict[relative_path].append(mod_where_first_seen)
+                            if (mod_name not in ARCExtract.arc_files_duplicate_dict[relative_path]):
+                                ARCExtract.arc_files_duplicate_dict[relative_path].append(mod_name)
                         else:
-                            if (
-                                mod_name
-                                not in ARCExtract.arc_files_seen_dict[relative_path]
-                            ):
-                                ARCExtract.arc_files_seen_dict[relative_path].append(
-                                    mod_name
-                                )
+                            if (mod_name not in ARCExtract.arc_files_seen_dict[relative_path]):
+                                ARCExtract.arc_files_seen_dict[relative_path].append(mod_name)
                 # check for arc files
                 for file in filenames:
                     if file.endswith(".arc"):
-                        full_path = dirpath + os.path.sep + file
-                        relative_path = os.path.relpath(full_path, mod_directory).split(
-                            os.path.sep, 1
-                        )[1]
-                        if bool(
-                            self._organizer.pluginSetting(
-                                ARCExtract.name(ARCExtract), "merge-mode"
-                            )
-                        ):
-                            if (
-                                mod_name
-                                not in ARCExtract.arc_files_seen_dict[relative_path]
-                            ):
-                                ARCExtract.arc_files_seen_dict[relative_path].append(
-                                    mod_name
-                                )
-                        if any(
-                            relative_path in x for x in ARCExtract.arc_files_seen_dict
-                        ):
-                            mod_where_first_seen = ARCExtract.arc_files_seen_dict[
-                                relative_path
-                            ][0]
-                            ARCExtract.arc_files_duplicate_dict[relative_path].append(
-                                mod_where_first_seen
-                            )
+                        full_path = os.path.join(dirpath, file)
+                        relative_path = os.path.relpath(full_path, mod_directory).split(os.path.sep, 1)[1]
+                        if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
+                            if (mod_name not in ARCExtract.arc_files_seen_dict[relative_path]):
+                                ARCExtract.arc_files_seen_dict[relative_path].append(mod_name)
+                        if (relative_path in ARCExtract.arc_files_seen_dict):
+                            mod_where_first_seen = ARCExtract.arc_files_seen_dict[relative_path][0]
+                            ARCExtract.arc_files_duplicate_dict[relative_path].append(mod_where_first_seen)
                             log_out += f"Duplicate ARC: {os.path.join(dirpath, file)}\n"
-                            if (
-                                mod_name
-                                not in ARCExtract.arc_files_duplicate_dict[
-                                    relative_path
-                                ]
-                            ):
-                                ARCExtract.arc_files_duplicate_dict[
-                                    relative_path
-                                ].append(mod_name)
+                            if (mod_name not in ARCExtract.arc_files_duplicate_dict[relative_path]):
+                                ARCExtract.arc_files_duplicate_dict[relative_path].append(mod_name)
                             # update arc_folders_previous_build_dict
                             # strip .arc extension
                             relative_folder_path = os.path.splitext(relative_path)[0]
-                            if (
-                                relative_folder_path
-                                in ARCExtract.arc_folders_previous_build_dict
-                                and mod_name
-                                in ARCExtract.arc_folders_previous_build_dict[
-                                    relative_folder_path
-                                ]
-                            ):
-                                ARCExtract.arc_folders_previous_build_dict[
-                                    relative_folder_path
-                                ].remove(mod_name)
+                            if (relative_folder_path in ARCExtract.arc_folders_previous_build_dict and mod_name in ARCExtract.arc_folders_previous_build_dict[relative_folder_path]):
+                                ARCExtract.arc_folders_previous_build_dict[relative_folder_path].remove(mod_name)
                                 # update arcFileMerge.json
                                 try:
-                                    with open(
-                                        os.path.join(
-                                            mod_directory,
-                                            merge_mod,
-                                            "arcFileMerge.json",
-                                        ),
-                                        "w",
-                                        encoding="utf-8",
-                                    ) as file_handle:
-                                        json.dump(
-                                            ARCExtract.arc_folders_previous_build_dict,
-                                            file_handle,
-                                        )
+                                    with open(os.path.join(mod_directory, merge_mod, "arcFileMerge.json",), "w", encoding="utf-8",) as file_handle:
+                                        json.dump(ARCExtract.arc_folders_previous_build_dict, file_handle,)
                                 except IOError:
-                                    if bool(
-                                        self._organizer.pluginSetting(
-                                            ARCExtract.name(ARCExtract), "log-enabled"
-                                        )
-                                    ):
-                                        log_out += (
-                                            "arcFileMerge.json not found or invalid"
-                                        )
+                                    if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "log-enabled")):
+                                        log_out += ("arcFileMerge.json not found or invalid")
                         else:
-                            if (
-                                mod_name
-                                not in ARCExtract.arc_files_seen_dict[relative_path]
-                            ):
-                                ARCExtract.arc_files_seen_dict[relative_path].append(
-                                    mod_name
-                                )
+                            if (mod_name not in ARCExtract.arc_files_seen_dict[relative_path]):
+                                ARCExtract.arc_files_seen_dict[relative_path].append(mod_name)
             mods_scanned += 1
             self.signals.progress.emit(mods_scanned)  # update progress
         self.signals.result.emit(log_out)  # Return log
@@ -674,37 +538,20 @@ class ExtractThreadWorker(QRunnable):
                 log_out += f"Extracting: {mod_name} {self._arc_file}\n"
                 # extract arc
                 command = f'"{executable}" {args} "{arc_fullpath}"'
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "verbose-log"
-                    )
-                ):
+                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                     log_out += "Extract command: " + command + "\n"
                 command_out = os.popen(command).read()
-                if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "verbose-log"
-                    )
-                ):
+                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                     log_out += "------ start arctool output ------\n"
                     log_out += command_out + "------ end arctool output ------\n"
                 if not os.path.isdir(extracted_arc_folder_fullpath):
                     log_out += f"Extracting vanilla ARC: {self._arc_file}\n"
                 if os.path.isfile(os.path.join(game_directory, self._arc_file)):
-                    pathlib.Path(extracted_arc_folder_fullpath).mkdir(
-                        parents=True, exist_ok=True
-                    )
-                    shutil.copy(
-                        os.path.join(game_directory, self._arc_file),
-                        os.path.join(mod_directory, merge_mod, arc_file_parent_relpath),
-                    )
+                    pathlib.Path(extracted_arc_folder_fullpath).mkdir(parents=True, exist_ok=True)
+                    shutil.copy(os.path.join(game_directory, self._arc_file),os.path.join(mod_directory, merge_mod, arc_file_parent_relpath),)
                     command = f'"{executable}" {args} "{arc_file_fullpath}"'
                     command_out = os.popen(command).read()
-                    if bool(
-                        self._organizer.pluginSetting(
-                            ARCExtract.name(ARCExtract), "verbose-log"
-                        )
-                    ):
+                    if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                         log_out += "------ start arctool output ------\n"
                         log_out += command_out + "------ end arctool output ------\n"
                     # remove .arc file
@@ -727,69 +574,37 @@ class ExtractThreadWorker(QRunnable):
                         return filelist
 
                     # compare mod folder to extracted vanilla arc folder
-                    dcmp = filecmp.dircmp(
-                        os.path.join(
-                            mod_directory,
-                            merge_mod,
-                            extracted_arc_folder_relpath,
-                        ),
-                        os.path.join(
-                            mod_directory, mod_name, extracted_arc_folder_relpath
-                        ),
-                    )
+                    dcmp = filecmp.dircmp(os.path.join(mod_directory, merge_mod, extracted_arc_folder_relpath,), os.path.join(mod_directory, mod_name, extracted_arc_folder_relpath),)
                     files_to_delete = list_identical_files(dcmp)
-                    if bool(
-                        self._organizer.pluginSetting(
-                            ARCExtract.name(ARCExtract), "verbose-log"
-                        )
-                    ):
+                    if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                         log_out += "------ deleting files matching vanilla extracted arc folder ------\n"
                         for name in files_to_delete:
                             log_out += f'Removing "{name}"\n'
                         log_out += "------ end output ------\n"
                     if bool(
-                        self._organizer.pluginSetting(
-                            ARCExtract.name(ARCExtract), "log-enabled"
-                        )
-                    ):
+                        self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "log-enabled")):
                         log_out += f"Removed {len(files_to_delete)} identical files\n"
                     for name in files_to_delete:
                         os.remove(name)
 
                     # delete empty folders
                     for dirpath, dirnames, filenames in os.walk(
-                        os.path.join(
-                            mod_directory, mod_name, extracted_arc_folder_relpath
-                        ),
-                        topdown=False,
-                    ):
+                        os.path.join(mod_directory, mod_name, extracted_arc_folder_relpath), topdown=False,):
                         for dirname in dirnames:
                             full_path = os.path.join(dirpath, dirname)
                             if not os.listdir(full_path):
-                                if bool(
-                                    self._organizer.pluginSetting(
-                                        ARCExtract.name(ARCExtract), "verbose-log"
-                                    )
-                                ):
+                                if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "verbose-log")):
                                     log_out += f"Removed empty folder: {full_path}\n"
                                 os.rmdir(full_path)
-                                pathlib.Path(f"{full_path}.arc.txt").unlink(
-                                    missing_ok=True
-                                )
+                                pathlib.Path(f"{full_path}.arc.txt").unlink(missing_ok=True)
                 # delete arc
                 if bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "delete-ARC"
-                    )
-                ):
+                    self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "delete-ARC")):
                     log_out += f"Deleting {arc_fullpath}\n"
                     pathlib.Path(arc_fullpath).unlink(missing_ok=True)
                 # remove .arc.txt
                 if not bool(
-                    self._organizer.pluginSetting(
-                        ARCExtract.name(ARCExtract), "merge-mode"
-                    )
-                ):
+                    self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "merge-mode")):
                     pathlib.Path(f"{arc_fullpath}.txt").unlink(missing_ok=True)
                 log_out += "ARC extract complete"
         if log_out != "\n":
