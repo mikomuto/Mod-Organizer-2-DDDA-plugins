@@ -140,7 +140,7 @@ class ARCExtract(mobase.IPluginTool):
         return self.__tr("Unpacks ARC files")
 
     def icon(self):
-        return QIcon("")
+        return QIcon(":/MO/gui/content/plugin")
 
     def setParentWidget(self, widget):
         self.__parent_widget = widget

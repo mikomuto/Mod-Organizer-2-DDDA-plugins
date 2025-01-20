@@ -83,7 +83,7 @@ class ARCMerge(mobase.IPluginTool):
         return self.__tr("Merge extracted .arc files")
 
     def icon(self):
-        return QIcon("")
+        return QIcon(":/MO/gui/content/plugin")
 
     def setParentWidget(self, widget):
         self.__parent_widget = widget
