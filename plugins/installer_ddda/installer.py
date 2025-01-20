@@ -1,5 +1,6 @@
 import re
 import os
+import csv
 
 import mobase
 
@@ -49,6 +50,7 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         return [
             mobase.PluginSetting("enabled", "check to enable this plugin", True),
             mobase.PluginSetting("priority", "priority of this installer", 120),
+            mobase.PluginSetting("debug", "debug messages", False),
         ]
 
     def priority(self) -> int:
@@ -67,12 +69,10 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         game_name = self._organizer.managedGame().gameName()
 
         if (game_name == "Dragon's Dogma: Dark Arisen"):
-            #Filter out correctly structured mods?
             return True
         
         return False
 
-    plugin_debug = False
     fixable_structure = False
     RE_BODYFILE = re.compile(r"[fm]_[aiw]_\w+.arc")
     RE_DL1_BODYFILE = re.compile(r"[fm]_a_\w+820\d.arc")
@@ -116,21 +116,20 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         ".sngw",
     ]
     NO_CHILDFOLDERS = ["a_acc", "i_body", "w_leg"]
+    CopyList: list[tuple[mobase.FileTreeEntry, str]] = []
     MoveList: list[tuple[mobase.FileTreeEntry, str]] = []
-    DeleteList: list[tuple[mobase.FileTreeEntry, str]] = []
+    DeleteList: list[mobase.FileTreeEntry] = []
 
     def checkFiletreeEntry(self, path: str, entry: mobase.FileTreeEntry) -> mobase.IFileTree.WalkReturn:
         # we check for valid game files within a valid root folder
         path_root = path.split(os.sep)[0]
         entry_name, entry_extension = os.path.splitext(entry.name())
 
-        if self.plugin_debug:
-            qInfo(f"checkFiletreeEntry path_root:{path_root} path:{path} entry:{entry.name()}")
         if entry.isDir():
             parent = entry.parent()
             if path_root not in self.VALID_ROOT_FOLDERS:
                 if (parent in self.VALID_ROOT_FOLDERS and entry in self.VALID_CHILD_FOLDERS):
-                    if self.plugin_debug:
+                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
                         qInfo(f"Adding child to move list: {path} {entry.name()}")
                     self.MoveList.append((entry, "rom" + os.sep))
                     self.fixable_structure = True
@@ -140,7 +139,7 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
                 name, ext = os.path.splitext(entry.name())
                 if ext in self.VALID_FILE_EXTENSIONS:
                     self.valid_structure = True
-                    if self.plugin_debug:
+                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
                         qInfo("checkFiletreeEntry valid")
                     return mobase.IFileTree.WalkReturn.STOP
             is_body_file = self.RE_BODYFILE.match(entry.name())
@@ -148,7 +147,7 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
                 self.fixable_structure = True
                 parent_folder = str(entry.name())[0]
                 grandparent_folder = re.split(r"_(?=._)|[0-9]", str(entry.name()))[1]
-                if self.plugin_debug:
+                if bool(self._organizer.pluginSetting(self.name(), "debug")):
                     qInfo(f"Adding to move list: {path + entry.name()}")
                 if grandparent_folder in self.NO_CHILDFOLDERS:
                     target_path = os.path.join("/rom/eq/", grandparent_folder)
@@ -182,49 +181,75 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
             containing where the two last members correspond to the new version and ID
             of the mod, in case those were updated by the installer.
         """
+
+        #clear variables
+        self.CopyList.clear()
+        self.MoveList.clear()
+        self.DeleteList.clear()
+        self.fixable_structure = False
+
         #we use nexus mod ID and file ID to match with install script
         mod_identifier = str(nexus_id) + "-" + version
 
-        #check for install script
-        script_file = os.path.join(self._organizer.basePath(), "/plugins/installer_ddda/scripts/", mod_identifier + ".txt")
-        if self.plugin_debug:
-            qInfo("script_file: " + script_file)
-        if os.path.isfile(script_file):
-            qInfo("found installer script")
-
-        # check filetree
-        filetree.walk(self.checkFiletreeEntry, os.sep)
-        
-        if self.plugin_debug:
+        if bool(self._organizer.pluginSetting(self.name(), "debug")):
             qInfo("installer_ddda mod_name: " + name.__str__())
             qInfo("installer_ddda mod_identifier: " + mod_identifier)
 
+        #check for install script
+        script_file = os.path.normpath(os.path.join(self._organizer.basePath(), "plugins/installer_ddda/instructions", mod_identifier + ".txt"))
+        if bool(self._organizer.pluginSetting(self.name(), "debug")):
+            qInfo("Searching for script_file: " + script_file)
+        if os.path.isfile(script_file):
+            # can we fix it, yes we can!
+            self.fixable_structure = True
+            #load delete, copy, and move lists from csv
+            with open(script_file, 'r', newline='') as csvfile:
+                linereader = csv.reader(csvfile, delimiter=',', quotechar='"')
+                for line in linereader:
+                    #locate target in filetree
+                    op_target = filetree.find(line[1])
+                    if op_target:
+                        #structure (directive, fileName, target_dir
+                        if (line[0] == "copy"):
+                            self.CopyList.append((op_target, os.path.normpath(line[2])))
+                        if (line[0] == "move"):
+                            self.MoveList.append((op_target, os.path.normpath(line[2])))
+                        if (line[0] == "delete"):
+                            self.DeleteList.append(op_target)
+                    else:
+                        qInfo("target file not found: " + line[1])
+            csvfile.close()
+        else:
+            # check filetree
+            filetree.walk(self.checkFiletreeEntry, os.sep)
+        
         if self.fixable_structure:
-            size_delete_list = len(self.DeleteList)
-            size_move_list = len(self.MoveList)
-       
-            if size_delete_list > 0 and size_move_list > 0:
+            if not self.CopyList and not self.MoveList and not self.DeleteList:
                 self.valid_structure = True
                 return filetree
-            if size_delete_list > 0:
-                for entry, path in reversed(self.DeleteList):
-                    if self.plugin_debug:
-                        qInfo(f"Deleting: {path + entry.name()}")
-                    filetree.move(
-                        entry, "/delete/" + entry.name(), policy=mobase.IFileTree.MERGE
-                    )
-            if size_move_list > 0:
+            if self.CopyList:
+                for entry, path in reversed(self.CopyList):
+                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                        qInfo(f"Copying: {entry.name()} to {path}" + os.sep)
+                    filetree.addDirectory(path).copy(entry)
+            if self.MoveList:
                 for entry, path in reversed(self.MoveList):
                     entry_path = filetree.pathTo(entry, os.sep)
                     path_root = entry_path.split(os.sep)[0]
-                    if self.plugin_debug:
-                        qInfo(f"Moving: {entry.name()} to {path} " + os.sep)
+                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                        qInfo(f"Moving: {entry.name()} to {path}" + os.sep)
                     filetree.move(entry, path + os.sep, policy=mobase.IFileTree.MERGE)
                     filetree.remove(path_root)  # remove empty branch
+            if self.DeleteList:
+                for entry in reversed(self.DeleteList):
+                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                        qInfo(f"Deleting: {entry.name()}")
+                    filetree.move(entry, "/delete/" + entry.name(), policy=mobase.IFileTree.MERGE)
             # remove invalid root folders
             filetree.remove("delete")
             return filetree
 
-        if self.plugin_debug:
+        if bool(self._organizer.pluginSetting(self.name(), "debug")):
             qInfo("Not attempting install")
+
         return mobase.InstallResult.NOT_ATTEMPTED
