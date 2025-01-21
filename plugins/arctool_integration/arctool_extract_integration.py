@@ -10,25 +10,11 @@ import filecmp
 import logging
 import pathlib
 import shutil
-import hashlib
 from collections import defaultdict
 
-from PyQt6.QtCore import (
-    QFileInfo,
-    QThreadPool,
-    QRunnable,
-    QObject,
-    pyqtSignal,
-    pyqtSlot,
-    qInfo,
-)
+from PyQt6.QtCore import (QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot, qInfo)
 from PyQt6.QtGui import QIcon, QFileSystemModel
-from PyQt6.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QMessageBox,
-    QProgressDialog,
-)
+from PyQt6.QtWidgets import ( QApplication, QMessageBox, QProgressDialog)
 
 import mobase
 
@@ -238,6 +224,23 @@ class ARCExtract(mobase.IPluginTool):
         self.arc_files_seen_dict.clear()
         self.arc_files_duplicate_dict.clear()
 
+        # warn if merge mode active
+        if bool(self._organizer.pluginSetting(self.name(), "merge-mode")):
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Merge Mode Active")
+            msg.setText(
+                "WARNING: All active mods will be extracted and Identical "
+                + "To Master files removed.\n\nDo you wish to continue?"
+            )
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+            )
+            retval = msg.exec()
+            if retval == QMessageBox.StandardButton.No.value:
+                return
+
         # get mod active list
         mod_active_list = []
         modlist = self._organizer.modList()
@@ -292,7 +295,10 @@ class ARCExtract(mobase.IPluginTool):
         if len(self.arc_files_duplicate_dict) > 0:
             self.extract_duplicate_arcs()
         else:
-            self.announce_finish()
+            self.extract_progress_dialog.hide()
+            QMessageBox.information(
+            self.__parent_widget, self.__tr("Scan complete"), self.__tr(
+                "Nothing to do"))
 
     def scan_thread_worker_output(self, log_out):
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
@@ -314,9 +320,7 @@ class ARCExtract(mobase.IPluginTool):
             # Execute
             self.threadpool.start(worker)
 
-    def extract_thread_cleanup(
-        self,
-    ):  # called after completion of all ExtractThreadWorker()
+    def extract_thread_cleanup(self):  # called after completion of all ExtractThreadWorker()
         organizer = self._organizer
         mod_directory = organizer.modsPath()
         # get mod active list
@@ -339,16 +343,17 @@ class ARCExtract(mobase.IPluginTool):
                             self.logger.debug("Deleting %s", full_path)
                         os.rmdir(full_path)
                         pathlib.Path(f"{full_path}.arc.txt").unlink(missing_ok=True)
-        self.announce_finish()
-
-    def announce_finish(self):
+        # announce completion
         self.extract_progress_dialog.hide()
         QMessageBox.information(
-            self.__parent_widget, self.__tr(""), self.__tr("Extraction complete")
+            self.__parent_widget, self.__tr("Extraction complete"), self.__tr(
+                "Duplicate ARC count: %s\n" % len(self.arc_files_duplicate_dict)
+                + "Unique ARC count: %s" % len(self.arc_files_seen_dict))
         )
         if bool(self._organizer.pluginSetting(self.name(), "log-enabled")):
             self.logger.debug("Extraction complete")
-        self.logger.handlers.clear()
+            # clear handlers. We're done
+            self.logger.handlers.clear()
 
     def extract_thread_worker_complete(
         self,
@@ -490,7 +495,7 @@ class ScanThreadWorker(QRunnable):
                                         json.dump(ARCExtract.arc_folders_previous_build_dict, file_handle,)
                                 except IOError:
                                     if bool(self._organizer.pluginSetting(ARCExtract.name(ARCExtract), "log-enabled")):
-                                        log_out += ("arcFileMerge.json not found or invalid")
+                                        log_out += ("arcFileMerge.json missing or invalid")
                         else:
                             if (mod_name not in ARCExtract.arc_files_seen_dict[relative_path]):
                                 ARCExtract.arc_files_seen_dict[relative_path].append(mod_name)

@@ -7,21 +7,13 @@
 import os
 import json
 import shutil
-import hashlib
 import logging
 import pathlib
 from collections import defaultdict
 
-from PyQt6.QtCore import (
-    QFileInfo,
-    QThreadPool,
-    QRunnable,
-    QObject,
-    pyqtSignal,
-    pyqtSlot,
-)
+from PyQt6.QtCore import ( QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot)
 from PyQt6.QtGui import QIcon, QFileSystemModel
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog
+from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 import mobase
 
@@ -249,14 +241,16 @@ class ARCMerge(mobase.IPluginTool):
             for mod_name in modlist.allModsByProfilePriority():
                 if not modlist.state(mod_name) & mobase.ModState.VALID:
                     self._organizer.modList().setActive(mod_name, False)
+        # announce completion
         self.merge_progress_dialog.hide()
         QMessageBox.information(
             self.__parent_widget, self.__tr(""), self.__tr("Merge complete")
         )
-        self.logger.handlers.clear()
-        # self._organizer.refresh()
+        if self._organizer.pluginSetting(self.name(), "log-enabled"):
+            self.logger.handlers.clear()
         # enable merge mod
         self._organizer.modList().setActive(merge_mod, True)
+        self._organizer.refresh()
 
     def scan_thread_worker_progress(
         self, progress
@@ -343,7 +337,7 @@ class ScanThreadWorker(QRunnable):
                     ARCMerge.arc_folders_previous_build_dict = json.load(file_handle)
             except IOError:
                 if bool(self._organizer.pluginSetting(ARCMerge.main_tool_name(), "log-enabled")):
-                    log_out += "arcFileMerge.json not found or invalid"
+                    log_out += "arcFileMerge.json missing or invalid"
 
         mods_scanned = 0
         # build list of current active mod arc folders to merge

@@ -27,13 +27,13 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
     def init(self, organizer: mobase.IOrganizer):
         self._organizer = organizer
         return True
-
+   
     def name(self):
         return "DDDA Installer"
 
     def localizedName(self) -> str:
         return self.tr("DDDA Installer")
-
+ 
     def author(self):
         return "MikoMuto"
 
@@ -50,6 +50,7 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         return [
             mobase.PluginSetting("enabled", "check to enable this plugin", True),
             mobase.PluginSetting("priority", "priority of this installer", 120),
+            mobase.PluginSetting("manual_mode", "manual verification of all installs", False),
             mobase.PluginSetting("debug", "debug messages", False),
         ]
 
@@ -188,17 +189,16 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         self.DeleteList.clear()
         self.fixable_structure = False
 
-        #we use nexus mod ID and file ID to match with install script
-        mod_identifier = str(nexus_id) + "-" + version
+        #find mod name variant with nexus ID as it should be unique (fingers crossed)
+        filter_object = filter(lambda a: str(nexus_id) in a, name.variants())
+        if filter_object:            
+            mod_identifier = list(filter_object)[0]
 
         if bool(self._organizer.pluginSetting(self.name(), "debug")):
-            qInfo("installer_ddda mod_name: " + name.__str__())
-            qInfo("installer_ddda mod_identifier: " + mod_identifier)
+            qInfo("File ID: " + mod_identifier)
 
         #check for install script
         script_file = os.path.normpath(os.path.join(self._organizer.basePath(), "plugins/installer_ddda/instructions", mod_identifier + ".txt"))
-        if bool(self._organizer.pluginSetting(self.name(), "debug")):
-            qInfo("Searching for script_file: " + script_file)
         if os.path.isfile(script_file):
             # can we fix it, yes we can!
             self.fixable_structure = True
@@ -247,6 +247,8 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
                     filetree.move(entry, "/delete/" + entry.name(), policy=mobase.IFileTree.MERGE)
             # remove invalid root folders
             filetree.remove("delete")
+            if bool(self._organizer.pluginSetting(self.name(), "manual_mode")):
+                return (mobase.InstallResult.MANUAL_REQUESTED, filetree, version, nexus_id)
             return filetree
 
         if bool(self._organizer.pluginSetting(self.name(), "debug")):
