@@ -1,3 +1,3 @@
 "delete","Dragon's Dogma - Into Free Mod"
-"move","Dragon's Dogma - Into Free Mod\Tittle_DDN.sngw","sound\stream\bgm\wave2"
-"move","Dragon's Dogma - Into Free Mod\title.arc","rom"
+"move","Dragon's Dogma - Into Free Mod\Tittle_DDN.sngw","sound\stream\bgm\wave2\"
+"move","Dragon's Dogma - Into Free Mod\title.arc","rom\"

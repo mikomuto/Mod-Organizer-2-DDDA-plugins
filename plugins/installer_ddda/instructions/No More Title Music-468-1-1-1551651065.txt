@@ -1,1 +1,1 @@
-"move","Tittle_DDN.sngw","sound\steam\bgm\wave2"
+"move","Tittle_DDN.sngw","sound\steam\bgm\wave2\"

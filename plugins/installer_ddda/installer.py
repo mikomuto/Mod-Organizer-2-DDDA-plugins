@@ -202,18 +202,23 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         if os.path.isfile(script_file):
             # can we fix it, yes we can!
             self.fixable_structure = True
+            if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                qInfo("Found install instructions")
             #load delete, copy, and move lists from csv
             with open(script_file, 'r', newline='') as csvfile:
                 linereader = csv.reader(csvfile, delimiter=',', quotechar='"')
                 for line in linereader:
+                    #skip invalid entries
+                    if not 1 < len(line) < 4:
+                        continue
                     #locate target in filetree
                     op_target = filetree.find(line[1])
                     if op_target:
-                        #structure (directive, fileName, target_dir
+                        #structure (directive, fileName, target
                         if (line[0] == "copy"):
-                            self.CopyList.append((op_target, os.path.normpath(line[2])))
+                            self.CopyList.append((op_target, line[2]))
                         if (line[0] == "move"):
-                            self.MoveList.append((op_target, os.path.normpath(line[2])))
+                            self.MoveList.append((op_target, line[2]))
                         if (line[0] == "delete"):
                             self.DeleteList.append(op_target)
                     else:
@@ -228,24 +233,31 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
                 self.valid_structure = True
                 return filetree
             if self.CopyList:
-                for entry, path in reversed(self.CopyList):
-                    if bool(self._organizer.pluginSetting(self.name(), "debug")):
-                        qInfo(f"Copying: {entry.name()} to {path}" + os.sep)
-                    filetree.addDirectory(path).copy(entry)
+                for entry, path in reversed(self.CopyList):                    
+                    entry_path = os.path.split(path)
+                    # if we have a file...
+                    if entry_path[1]:
+                        if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                            qInfo(f"Rename: {entry.name()} : {path}")
+                        filetree.copy(entry, path)                        
+                    else:
+                        if bool(self._organizer.pluginSetting(self.name(), "debug")):
+                            qInfo(f"Copying: {entry.name()} : {path}")
+                        filetree.addDirectory(path).copy(entry)
             if self.MoveList:
                 for entry, path in reversed(self.MoveList):
                     entry_path = filetree.pathTo(entry, os.sep)
                     path_root = entry_path.split(os.sep)[0]
                     if bool(self._organizer.pluginSetting(self.name(), "debug")):
-                        qInfo(f"Moving: {entry.name()} to {path}" + os.sep)
+                        qInfo(f"Move: {entry.name()} : {path}")
                     filetree.move(entry, path + os.sep, policy=mobase.IFileTree.MERGE)
                     filetree.remove(path_root)  # remove empty branch
             if self.DeleteList:
                 for entry in reversed(self.DeleteList):
                     if bool(self._organizer.pluginSetting(self.name(), "debug")):
-                        qInfo(f"Deleting: {entry.name()}")
+                        qInfo(f"Delete: {entry.name()}")
                     filetree.move(entry, "/delete/" + entry.name(), policy=mobase.IFileTree.MERGE)
-            # remove invalid root folders
+            # remove invalid root folder
             filetree.remove("delete")
             if bool(self._organizer.pluginSetting(self.name(), "manual_mode")):
                 return (mobase.InstallResult.MANUAL_REQUESTED, filetree, version, nexus_id)

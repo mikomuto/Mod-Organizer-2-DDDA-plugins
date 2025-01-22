@@ -1,0 +1,56 @@
+"delete","ARCtool.exe"
+"delete","f00_deadleaf30_BM.dds"
+"delete","f00_deadleaf30_BM.txt"
+"delete","f00_grass13_BM.dds"
+"delete","f00_grass13_BM.txt"
+"delete","f00_grass57_BM.txt"
+"delete","f03_grass00_BM.txt"
+"delete","f03_grass01_BM.dds"
+"delete","f03_grass01_BM.txt"
+"delete","f03_soil05_BM.dds"
+"delete","f03_soil05_BM.txt"
+"delete","f06_grass01_BM.txt"
+"delete","f07_grass33_BM.dds"
+"delete","f07_grass33_BM.txt"
+"delete","f09_grass33_BM.txt"
+"delete","GrassInstall ALL.bat"
+# f00_grass13_BM
+"copy","f00_grass13_BM.dds","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\"
+"copy","f00_grass13_BM.dds","rom\stage\stage100\area\area_index02_high\scr\st100\model\textures\Highest\"
+"copy","f00_grass13_BM.txt","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\"
+"copy","f00_grass13_BM.txt","rom\stage\stage100\area\area_index02_high\scr\st100\model\textures\Highest\"
+# f00_grass57_BM
+"copy","f00_grass13_BM.dds","rom\stage\stage100\area\area_index00_high\scr\st100\model\textures\Highest\f00_grass57_BM.dds"
+"copy","f00_grass13_BM.dds","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\f00_grass57_BM.dds"
+"copy","f00_grass57_BM.txt","rom\stage\stage100\area\area_index00_high\scr\st100\model\textures\Highest\"
+"copy","f00_grass57_BM.txt","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\"
+# f09_grass33_BM
+"copy","f00_grass13_BM.dds","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\f09_grass33_BM.dds"
+"copy","f09_grass33_BM.txt","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\"
+# f07_grass33_BM
+"copy","f07_grass33_BM.dds","rom\stage\stage100\area\area_index05_high\scr\st100\model\textures\Highest\"
+"copy","f09_grass33_BM.txt","rom\stage\stage100\area\area_index05_high\scr\st100\model\textures\Highest\"
+# f03_grass00_BM
+"copy","f07_grass33_BM.dds","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f03_grass00_BM.dds"
+"copy","f07_grass33_BM.dds","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\f03_grass00_BM.dds"
+"copy","f07_grass33_BM.dds","rom\stage\stage100\area\area_index05_high\scr\st100\model\textures\Highest\f03_grass00_BM.dds"
+"copy","f07_grass33_BM.txt","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f03_grass00_BM.txt"
+"copy","f07_grass33_BM.txt","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\f03_grass00_BM.txt"
+"copy","f07_grass33_BM.txt","rom\stage\stage100\area\area_index05_high\scr\st100\model\textures\Highest\f03_grass00_BM.txt"
+# f03_grass01_BM
+"copy","f03_grass01_BM.dds","rom\stage\stage100\area\area_index00_high\scr\st100\model\textures\Highest\"
+"copy","f03_grass01_BM.dds","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\"
+"copy","f03_grass01_BM.txt","rom\stage\stage100\area\area_index00_high\scr\st100\model\textures\Highest\"
+"copy","f03_grass01_BM.txt","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\"
+# f00_deadleaf30_BM
+"copy","f00_deadleaf30_BM.dds","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\"
+"copy","f00_deadleaf30_BM.txt","rom\stage\stage100\area\area_index01_high\scr\st100\model\textures\Highest\"
+# f09_deadleaf16_BM
+"copy","f00_deadleaf30_BM.dds","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\f09_deadleaf16_BM.dds"
+"copy","f00_deadleaf30_BM.txt","rom\stage\stage100\area\area_index04_high\scr\st100\model\textures\Highest\f09_deadleaf16_BM.txt"
+# f04_deadleaf01_BM
+"copy","f00_deadleaf30_BM.dds","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f04_deadleaf01_BM.dds"
+"copy","f00_deadleaf30_BM.txt","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f04_deadleaf01_BM.txt"
+# f03_soil05_BM
+"copy","f03_soil05_BM.dds","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f03_soil05_BM.dds"
+"copy","f03_soil05_BM.txt","rom\stage\stage100\area\area_index03_high\scr\st100\model\textures\Highest\f03_soil05_BM.txt"

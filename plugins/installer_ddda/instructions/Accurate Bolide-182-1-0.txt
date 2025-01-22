@@ -1,1 +1,1 @@
-"move","wan.arc","rom\wp\w1"
+"move","wan.arc","rom\wp\w1\"
