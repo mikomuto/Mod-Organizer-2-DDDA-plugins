@@ -1,0 +1,4 @@
+"delete","ARCtool.exe"
+"delete","Sun-Installerv1.bat"
+"move","sun.dds","rom\stage\stage100\stage100\scr\sky\"
+"move","sun.txt","rom\stage\stage100\stage100\scr\sky\"

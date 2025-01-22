@@ -2,7 +2,7 @@
 
 import mobase
 
-from .installer import dddaInstaller
+from .installer_ddda import dddaInstaller
 
 def createPlugin() -> dddaInstaller:
     return dddaInstaller()
