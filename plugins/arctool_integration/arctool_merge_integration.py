@@ -197,7 +197,7 @@ class ARCMerge(mobase.IPluginTool):
         for entry in self.arc_folders_current_build_dict:
             if (entry not in self.arc_folders_previous_build_dict or self.arc_folders_current_build_dict[entry] != self.arc_folders_previous_build_dict[entry]):
                 # Pass the function to execute
-                worker = MergeThreadWorker(self._organizer, self.arc_folders_current_build_dict[entry], entry)
+                worker = MergeThreadWorker(self._organizer, self.managed_game, self.arc_folders_current_build_dict[entry], entry)
                 worker.signals.result.connect(self.merge_thread_worker_output)
                 worker.signals.finished.connect(self.merge_thread_worker_complete)
                 # Execute
@@ -399,8 +399,9 @@ class MergeThreadWorkerSignals(QObject):
 
 
 class MergeThreadWorker(QRunnable):
-    def __init__(self, organizer, mods_to_merge, arc_folder_path):
+    def __init__(self, organizer, managed_game, mods_to_merge, arc_folder_path):
         self._organizer = organizer
+        self._managed_game = managed_game
         self.mods_to_merge = mods_to_merge
         self.arc_folder_path = arc_folder_path
         self.signals = MergeThreadWorkerSignals()
@@ -416,7 +417,7 @@ class MergeThreadWorker(QRunnable):
         compress_args = "-c -pc -dd -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
         extract_args = "-x -pc -dd -texRE6 -silent -alwayscomp -txt -v 7"
         # change args if needed 
-        match self.managed_game:
+        match self._managed_game:
             case "residentevilbiohazardhdremaster":
                 compress_args = "-c -pc -rehd -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
                 extract_args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"

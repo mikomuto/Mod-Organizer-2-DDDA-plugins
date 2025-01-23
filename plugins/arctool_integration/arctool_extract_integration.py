@@ -317,7 +317,7 @@ class ARCExtract(mobase.IPluginTool):
         for arc_file in self.arc_files_duplicate_dict:
             mod_list = self.arc_files_duplicate_dict[arc_file]
             # Pass the function to execute
-            worker = ExtractThreadWorker(self._organizer, mod_list, arc_file)
+            worker = ExtractThreadWorker(self._organizer, self.managed_game, mod_list, arc_file)
             worker.signals.result.connect(self.extract_thread_worker_output)
             worker.signals.finished.connect(self.extract_thread_worker_complete)
             # Execute
@@ -515,8 +515,9 @@ class ExtractThreadWorkerSignals(QObject):
 
 
 class ExtractThreadWorker(QRunnable):
-    def __init__(self, organizer, mod_list, arc_file):
+    def __init__(self, organizer, managed_game, mod_list, arc_file):
         self._organizer = organizer
+        self._managed_game = managed_game
         self._mod_list = mod_list
         self._arc_file = arc_file
         self.signals = ExtractThreadWorkerSignals()
@@ -530,7 +531,7 @@ class ExtractThreadWorker(QRunnable):
         # default args are for dragon's dogma dark arisen
         args = "-x -pc -dd -texRE6 -silent -alwayscomp -txt -v 7"
         # change args if needed 
-        match self.managed_game:
+        match self._managed_game:
             case "residentevilbiohazardhdremaster":
                 args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"        
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
