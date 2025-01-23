@@ -532,8 +532,7 @@ class ExtractThreadWorker(QRunnable):
         # change args if needed 
         match self.managed_game:
             case "residentevilbiohazardhdremaster":
-                args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"
-        
+                args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"        
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         arc_file_parent_relpath = os.path.dirname(self._arc_file)
         extracted_arc_folder_relpath = os.path.splitext(self._arc_file)[0]

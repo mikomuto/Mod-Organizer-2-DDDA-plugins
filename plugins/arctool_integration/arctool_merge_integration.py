@@ -412,8 +412,14 @@ class MergeThreadWorker(QRunnable):
         if ARCMerge.threadCancel:
             log_out += "Merge cancelled\n"
             return
-        extract_args = "-x -silent -pc -dd -alwayscomp -txt -v 7"
-        compress_args = "-c -silent -pc -dd -alwayscomp -tex -xfs -gmd -txt -v 7"
+        # default args are for dragon's dogma dark arisen
+        compress_args = "-c -pc -dd -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
+        extract_args = "-x -pc -dd -texRE6 -silent -alwayscomp -txt -v 7"
+        # change args if needed 
+        match self.managed_game:
+            case "residentevilbiohazardhdremaster":
+                compress_args = "-c -pc -rehd -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
+                extract_args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
         mod_directory = self._organizer.modsPath()
