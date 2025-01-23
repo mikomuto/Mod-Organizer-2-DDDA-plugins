@@ -60,7 +60,9 @@ class ARCMerge(mobase.IPluginTool):
         return mobase.VersionInfo(2, 0, 1)
 
     def requirements(self):
-        return [mobase.PluginRequirementFactory.gameDependency("Dragon's Dogma: Dark Arisen")]
+        return [
+            mobase.PluginRequirementFactory.gameDependency(["Dragon's Dogma: Dark Arisen", "Resident Evil Biohazard HD"])
+        ]
 
     def isActive(self) -> bool:
         return self._organizer.pluginSetting(self.main_tool_name(), "enabled")
@@ -405,8 +407,8 @@ class MergeThreadWorker(QRunnable):
         if ARCMerge.threadCancel:
             log_out += "Merge cancelled\n"
             return
-        extract_args = "-x -pc -dd -alwayscomp -txt -v 7"
-        compress_args = "-c -pc -dd -alwayscomp -tex -xfs -gmd -txt -v 7"
+        extract_args = "-x -silent -pc -dd -alwayscomp -txt -v 7"
+        compress_args = "-c -silent -pc -dd -alwayscomp -tex -xfs -gmd -txt -v 7"
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         game_directory = self._organizer.managedGame().dataDirectory().absolutePath()
         mod_directory = self._organizer.modsPath()
