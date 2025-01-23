@@ -57,7 +57,7 @@ class ARCMerge(mobase.IPluginTool):
         return self.__tr("Runs ARCtool on mods to merge extracted .arc folders from mods")
 
     def version(self):
-        return mobase.VersionInfo(2, 0, 1, 0)
+        return mobase.VersionInfo(2, 0, 1)
 
     def requirements(self):
         return [mobase.PluginRequirementFactory.gameDependency("Dragon's Dogma: Dark Arisen")]

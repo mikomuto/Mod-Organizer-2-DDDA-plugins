@@ -41,7 +41,7 @@ class dddaInstaller(mobase.IPluginInstallerSimple):
         return self.tr("Installer for Dragon's Dogma Dark Arisen mods.")
 
     def version(self):
-        return mobase.VersionInfo(1, 0, 0)
+        return mobase.VersionInfo(1, 2, 0)
 
     def isActive(self):
         return self._organizer.pluginSetting(self.name(), "enabled")

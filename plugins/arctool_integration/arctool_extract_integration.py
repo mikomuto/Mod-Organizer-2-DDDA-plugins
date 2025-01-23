@@ -61,7 +61,7 @@ class ARCExtract(mobase.IPluginTool):
         return self.__tr("Runs ARCtool on mods to extract files")
 
     def version(self):
-        return mobase.VersionInfo(2, 0, 1, 0)
+        return mobase.VersionInfo(2, 0, 1)
 
     def requirements(self):
         return [
