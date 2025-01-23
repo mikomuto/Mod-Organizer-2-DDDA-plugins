@@ -38,6 +38,7 @@ class ARCMerge(mobase.IPluginTool):
         self.merge_progress_dialog = None
         self.logger = None
         self.__parent_widget = None
+        self.managed_game = None
 
     def init(self, organizer):
         self._organizer = organizer
@@ -86,6 +87,8 @@ class ARCMerge(mobase.IPluginTool):
         initialized = self._organizer.pluginSetting(
             self.main_tool_name(), "initialised"
         )
+        # set managed game
+        self.managed_game = self._organizer.managedGame().gameShortName()
         # verify that ARCtool path is still valid
         try:
             executable = self.get_arctool()
@@ -113,6 +116,8 @@ class ARCMerge(mobase.IPluginTool):
             f_handler.setFormatter(f_format)
             self.logger.addHandler(f_handler)
             self.logger.propagate = False
+            # start logging
+            self.logger.debug("Detected game: " + self.managed_game)
 
         # check for inactive mods
         if self._organizer.pluginSetting(self.main_tool_name(), "uncheck-mods"):

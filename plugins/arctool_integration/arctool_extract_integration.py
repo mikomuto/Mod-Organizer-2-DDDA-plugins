@@ -41,6 +41,7 @@ class ARCExtract(mobase.IPluginTool):
         self.extract_progress_dialog = None
         self.logger = None
         self.__parent_widget = None
+        self.managed_game = None
 
     def init(self, organizer):
         self._organizer = organizer
@@ -142,7 +143,9 @@ class ARCExtract(mobase.IPluginTool):
                 self.name(), "max-threads", self.threadpool.maxThreadCount()
             )
             self._organizer.setPluginSetting(self.name(), "merge-mode", False)
-        # verify that ARCtool path is still valid
+        # set managed game
+        self.managed_game = self._organizer.managedGame().gameShortName()
+        # locate arctool
         try:
             executable = self.get_arctool()
         except ARCtoolInvalidPathException:
@@ -168,6 +171,8 @@ class ARCExtract(mobase.IPluginTool):
             f_handler.setFormatter(f_format)
             self.logger.addHandler(f_handler)
             self.logger.propagate = False
+            # start logging
+            self.logger.debug("Detected game: " + self.managed_game)
         # reset cancelled flag
         ARCExtract.threadCancel = False
         self._organizer.setPluginSetting(self.name(), "restore default", False)
@@ -522,7 +527,13 @@ class ExtractThreadWorker(QRunnable):
         # check for cancellation
         if ARCExtract.threadCancel:
             return
-        args = "-x -silent -pc -dd -alwayscomp -txt -v 7"
+        # default args are for dragon's dogma dark arisen
+        args = "-x -pc -dd -texRE6 -silent -alwayscomp -txt -v 7"
+        # change args if needed 
+        match self.managed_game:
+            case "residentevilbiohazardhdremaster":
+                args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"
+        
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         arc_file_parent_relpath = os.path.dirname(self._arc_file)
         extracted_arc_folder_relpath = os.path.splitext(self._arc_file)[0]
