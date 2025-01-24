@@ -62,7 +62,7 @@ class ARCMerge(mobase.IPluginTool):
 
     def requirements(self):
         return [
-            mobase.PluginRequirementFactory.gameDependency(["Dragon's Dogma: Dark Arisen", "Resident Evil Biohazard HD"])
+            mobase.PluginRequirementFactory.gameDependency(["Dragon's Dogma: Dark Arisen", "Resident Evil 0", "Resident Evil Biohazard HD"])
         ]
 
     def isActive(self) -> bool:
@@ -418,6 +418,9 @@ class MergeThreadWorker(QRunnable):
         extract_args = "-x -pc -dd -texRE6 -silent -alwayscomp -txt -v 7"
         # change args if needed 
         match self._managed_game:
+            case "residentevil0biohazard0hdremaster":
+                compress_args = "-c -pc -re0 -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
+                extract_args = "-x -pc --re0 -texRE6 -silent -alwayscomp -txt -v 7"
             case "residentevilbiohazardhdremaster":
                 compress_args = "-c -pc -rehd -texRE6 -silent -alwayscomp -tex -xfs -gmd -txt -v 7"
                 extract_args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"

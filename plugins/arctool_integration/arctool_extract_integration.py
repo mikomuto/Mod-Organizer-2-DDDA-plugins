@@ -66,7 +66,7 @@ class ARCExtract(mobase.IPluginTool):
 
     def requirements(self):
         return [
-            mobase.PluginRequirementFactory.gameDependency(["Dragon's Dogma: Dark Arisen", "Resident Evil Biohazard HD"])
+            mobase.PluginRequirementFactory.gameDependency(["Dragon's Dogma: Dark Arisen", "Resident Evil 0","Resident Evil Biohazard HD"])
         ]
 
     def isActive(self) -> bool:
@@ -533,7 +533,9 @@ class ExtractThreadWorker(QRunnable):
         # change args if needed 
         match self._managed_game:
             case "residentevilbiohazardhdremaster":
-                args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"        
+                args = "-x -pc --rehd -texRE6 -silent -alwayscomp -txt -v 7"
+            case "residentevil0biohazard0hdremaster":
+                args = "-x -pc ---re0 -texRE6 -silent -alwayscomp -txt -v 7"
         executable = os.path.join(self._organizer.basePath(), "ARCtool.exe")
         arc_file_parent_relpath = os.path.dirname(self._arc_file)
         extracted_arc_folder_relpath = os.path.splitext(self._arc_file)[0]
